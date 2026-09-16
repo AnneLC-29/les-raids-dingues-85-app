@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
+import calendar
 import folium
 from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
@@ -17,11 +18,17 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Nettoyage et conversion des dates pour le tri
+# Nettoyage et conversion des dates pour le tri et le calendrier
 df_courses['Date_dt'] = pd.to_datetime(df_courses['Date'], format='%d/%m/%Y', errors='coerce')
 df_courses = df_courses.sort_values(by='Date_dt')
 
-# 3. Fonction de géolocalisation mise en cache
+# Dictionnaire des mois en français
+MOIS_FR = {
+    1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin",
+    7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
+}
+
+# 3. Géolocalisation mise en cache pour la carte
 geolocator = Nominatim(user_agent="raids_dingues_app_85")
 
 @st.cache_data
@@ -38,7 +45,7 @@ def get_lat_lon(lieu_str):
     return None, None
 
 # 4. Organisation en onglets
-tab_fiche, tab_cal, tab_carte = st.tabs(["📋 Fiche & Inscription", "📅 Calendrier", "🗺️ Carte des courses"])
+tab_fiche, tab_cal, tab_carte = st.tabs(["📋 Fiche & Inscription", "📅 Calendrier Visuel", "🗺️ Carte des courses"])
 
 # --- TAB 1 : FICHE & INSCRIPTION ---
 with tab_fiche:
@@ -93,34 +100,89 @@ with tab_fiche:
                 st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
                 st.rerun()
 
-# --- TAB 2 : CALENDRIER ---
+# --- TAB 2 : CALENDRIER VISUEL GRILLE ---
 with tab_cal:
-    st.subheader("📅 Programme de la saison 2026")
+    st.subheader("📅 Vue Calendrier Mensuel 2026")
     
-    # Filtre par mois
-    df_courses['Mois_Nom'] = df_courses['Date_dt'].dt.strftime('%m - %B')
-    mois_dispos = ["Tous"] + list(df_courses['Mois_Nom'].dropna().unique())
-    mois_filtre = st.selectbox("Filtrer par mois :", mois_dispos)
-    
-    df_affiche = df_courses.copy()
-    if mois_filtre != "Tous":
-        df_affiche = df_affiche[df_affiche['Mois_Nom'] == mois_filtre]
-        
-    for _, row in df_affiche.iterrows():
-        with st.expander(f"🗓 {row['Date']} — **{row['Nom de la course']}** ({row['Lieu']})"):
-            st.write(f"**Type :** {row['Type de course']} | **Format :** {row['Détail']}")
-            if pd.notna(row['Lien']) and row['Lien'] != "Clos":
-                st.write(f"🔗 [Site officiel / Inscription]({row['Lien']})")
+    col_m, _ = st.columns([2, 3])
+    with col_m:
+        mois_selectionne = st.selectbox(
+            "Choisir le mois :",
+            range(1, 13),
+            index=0,
+            format_func=lambda m: f"{MOIS_FR[m]} 2026"
+        )
+
+    # Matrice des jours du mois
+    cal = calendar.Calendar(firstweekday=0)  # Lundi = 0
+    month_days = cal.monthdayscalendar(2026, mois_selectionne)
+
+    # Style HTML/CSS du calendrier
+    html_code = """
+    <style>
+        .cal-container { overflow-x: auto; width: 100%; }
+        .cal-table { width: 100%; min-width: 700px; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; }
+        .cal-th { background-color: #0066cc; color: white; text-align: center; padding: 10px; font-weight: bold; border: 1px solid #0055b3; }
+        .cal-td { border: 1px solid #ddd; vertical-align: top; height: 110px; padding: 6px; background-color: #ffffff; }
+        .cal-empty { background-color: #f8f9fa; border: 1px solid #eee; }
+        .day-num { font-weight: bold; font-size: 13px; color: #333; margin-bottom: 6px; }
+        .event-red { background-color: #ffe6e6; color: #cc0000; border-left: 4px solid #cc0000; padding: 4px 6px; margin-bottom: 4px; border-radius: 4px; font-size: 11px; font-weight: bold; word-wrap: break-word; }
+        .event-normal { background-color: #e6f0ff; color: #004085; border-left: 4px solid #0066cc; padding: 4px 6px; margin-bottom: 4px; border-radius: 4px; font-size: 11px; word-wrap: break-word; }
+    </style>
+    <div class="cal-container">
+    <table class="cal-table">
+        <thead>
+            <tr>
+                <th class="cal-th">LUNDI</th>
+                <th class="cal-th">MARDI</th>
+                <th class="cal-th">MERCREDI</th>
+                <th class="cal-th">JEUDI</th>
+                <th class="cal-th">VENDREDI</th>
+                <th class="cal-th">SAMEDI</th>
+                <th class="cal-th">DIMANCHE</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+
+    for week in month_days:
+        html_code += "<tr>"
+        for day in week:
+            if day == 0:
+                html_code += '<td class="cal-td cal-empty"></td>'
+            else:
+                date_target = pd.Timestamp(year=2026, month=mois_selectionne, day=day)
+                courses_jour = df_courses[df_courses['Date_dt'] == date_target]
+                
+                cell_content = f'<div class="day-num">{day}</div>'
+                
+                for _, row in courses_jour.iterrows():
+                    nom_c = row['Nom de la course']
+                    # Nombre d'inscrits dans l'onglet PARTICIPATIONS
+                    inscrits_c = df_participations[df_participations['Nom_Course'] == nom_c]
+                    nb_inscrits = len(inscrits_c)
+                    
+                    if nb_inscrits > 0:
+                        cell_content += f'<div class="event-red">🔴 {nom_c} ({nb_inscrits})</div>'
+                    else:
+                        cell_content += f'<div class="event-normal">🏃 {nom_c}</div>'
+                        
+                html_code += f'<td class="cal-td">{cell_content}</td>'
+        html_code += "</tr>"
+
+    html_code += "</tbody></table></div>"
+
+    st.markdown(html_code, unsafe_allow_html=True)
+    st.write("")
+    st.caption("🔴 **Légende :** Fond rouge = au moins 1 Raid Dingue inscrit (nombre d'inscrits entre parenthèses). Fond bleu = course libre.")
 
 # --- TAB 3 : CARTE INTERACTIVE ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses")
     st.caption("Passe la souris ou clique sur un marqueur pour afficher le nom de l'événement.")
     
-    # Centre de la carte (Vendée / Grand Ouest)
     m = folium.Map(location=[46.67, -1.42], zoom_start=8, tiles="OpenStreetMap")
     
-    # Ajout des marqueurs
     for _, row in df_courses.iterrows():
         lieu = row['Lieu']
         lat, lon = get_lat_lon(lieu)
