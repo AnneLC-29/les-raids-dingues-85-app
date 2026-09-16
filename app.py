@@ -20,13 +20,15 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Lecture de l'onglet MEMBRES pour la liste déroulante ET le sexe
+# Lecture de l'onglet MEMBRES pour la liste déroulante ET le sexe (clef de jointure nettoyée)
 df_membres_clean = pd.DataFrame()
 try:
     df_membres = conn.read(worksheet="MEMBRES", ttl=10)
     df_membres['Nom_Complet'] = df_membres['NOM'].astype(str).str.strip() + " " + df_membres['Prénom'].astype(str).str.strip()
-    df_membres['Sexe'] = df_membres['Sexe'].astype(str).str.strip().str.upper()
-    df_membres_clean = df_membres[['Nom_Complet', 'Sexe']].copy()
+    df_membres['Sexe_Clean'] = df_membres['Sexe'].astype(str).str.strip().str.upper()
+    df_membres['Key_Match'] = df_membres['Nom_Complet'].str.strip().str.upper()
+    
+    df_membres_clean = df_membres[['Key_Match', 'Sexe_Clean']].drop_duplicates().copy()
     liste_membres = sorted(df_membres['Nom_Complet'].dropna().unique().tolist())
 except Exception:
     liste_membres = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if "Nom_Membre" in df_participations.columns else []
@@ -326,32 +328,45 @@ with tab_stats:
     if df_participations.empty: 
         st.info("Aucune donnée disponible pour le classement.")
     else:
-        stats_membres = df_participations.groupby("Nom_Membre").agg(Courses_Totales=('Nom_Course', 'count'), Km_Parcourus=('Km_Calc', 'sum')).reset_index()
+        # Agrégation par membre
+        stats_membres = df_participations.groupby("Nom_Membre").agg(
+            Courses_Totales=('Nom_Course', 'count'),
+            Km_Parcourus=('Km_Calc', 'sum')
+        ).reset_index()
         
-        # Ajout du Sexe pour la couleur
+        # Clef majuscule pour la correspondance avec MEMBRES
+        stats_membres['Key_Match'] = stats_membres['Nom_Membre'].astype(str).str.strip().str.upper()
+        
         if not df_membres_clean.empty:
-            stats_membres = stats_membres.merge(df_membres_clean, left_on='Nom_Membre', right_on='Nom_Complet', how='left')
-            stats_membres['Sexe'] = stats_membres['Sexe'].replace({'H': 'Homme', 'F': 'Femme'})
-            stats_membres['Sexe'] = stats_membres['Sexe'].fillna('?')
-            stats_membres = stats_membres.drop(columns=['Nom_Complet'])
-        else:
-            stats_membres['Sexe'] = '?'
+            stats_membres = stats_membres.merge(df_membres_clean, on='Key_Match', how='left')
             
+            # Formatage du Sexe avec émoticônes
+            sexe_map = {'H': '👨 Homme', 'F': '👩 Femme'}
+            stats_membres['Sexe'] = stats_membres['Sexe_Clean'].map(sexe_map).fillna('❓ Non renseigné')
+            stats_membres = stats_membres.drop(columns=['Key_Match', 'Sexe_Clean'])
+        else:
+            stats_membres['Sexe'] = '❓ Non renseigné'
+            
+        # Tri par kilométrage
         stats_membres = stats_membres.sort_values(by=['Km_Parcourus', 'Nom_Membre'], ascending=[False, True])
-        stats_membres['Km_Parcourus'] = stats_membres['Km_Parcourus'].apply(lambda x: f"{x:.1f} km" if x > 0 else "0 km")
-        stats_membres.index = range(1, len(stats_membres) + 1)
-        stats_membres.index.name = "Position"
         
-        # Renommage et réorganisation des colonnes
-        stats_membres = stats_membres.rename(columns={'Nom_Membre': 'Membre', 'Courses_Totales': 'Nb Inscriptions', 'Km_Parcourus': 'Distance Totale'})
-        cols_order = ['Membre', 'Sexe', 'Nb Inscriptions', 'Distance Totale']
-        stats_membres = stats_membres[cols_order]
+        # Préparation du DataFrame final d'affichage
+        stats_display = stats_membres.rename(columns={
+            'Nom_Membre': 'Membre',
+            'Courses_Totales': 'Nb Inscriptions',
+            'Km_Parcourus': 'Distance Totale (km)'
+        })[['Membre', 'Sexe', 'Nb Inscriptions', 'Distance Totale (km)']]
         
-        # Application de la couleur jaune pâle pour les femmes
-        def highlight_femmes(row):
-            if row['Sexe'] == 'Femme':
-                # Jaune pâle avec écriture noire forcée (pour le mode sombre et clair)
-                return ['background-color: #fcfcbf; color: #000000;'] * len(row)
+        stats_display['Distance Totale (km)'] = stats_display['Distance Totale (km)'].round(1)
+        
+        # Fonction de mise en surbrillance pour les femmes
+        def style_rows(row):
+            if 'Femme' in str(row['Sexe']):
+                return ['background-color: #fef9c3; color: #1e293b; font-weight: 500;'] * len(row)
             return [''] * len(row)
             
-        st.dataframe(stats_membres.style.apply(highlight_femmes, axis=1), use_container_width=True)
+        st.dataframe(
+            stats_display.style.apply(style_rows, axis=1).format({'Distance Totale (km)': '{:.1f} km'}),
+            use_container_width=True,
+            hide_index=True
+        )
