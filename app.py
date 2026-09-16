@@ -27,7 +27,7 @@ try:
 except Exception:
     liste_membres = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if "Nom_Membre" in df_participations.columns else []
 
-# Correction automatique des accents et noms de colonnes dans PARTICIPATIONS
+# Correction automatique des colonnes dans PARTICIPATIONS
 rename_cols = {}
 for c in df_participations.columns:
     if "sultat" in str(c).lower():
@@ -40,12 +40,12 @@ for c in df_participations.columns:
 if rename_cols:
     df_participations = df_participations.rename(columns=rename_cols)
 
-# Sécurité : s'assurer que toutes les colonnes nécessaires existent
-for col_req in ["Nom_Membre", "Nom_Course", "Distance", "Statut", "Resultat"]:
+# Sécurité : s'assurer que les nouvelles colonnes Date et Lieu existent
+for col_req in ["Horodatage", "Date", "Lieu", "Nom_Membre", "Nom_Course", "Distance", "Statut", "Resultat"]:
     if col_req not in df_participations.columns:
         df_participations[col_req] = ""
 
-# Nettoyage et conversion des dates des courses
+# Nettoyage et conversion des dates
 df_courses['Date_dt'] = pd.to_datetime(df_courses['Date'], format='%d/%m/%Y', errors='coerce')
 df_courses = df_courses.sort_values(by='Date_dt')
 
@@ -56,70 +56,29 @@ MOIS_FR = {
 
 # 3. Base de coordonnées GPS
 COORDS_VILLES = {
-    "FOURAS": (45.9875, -1.0936),
-    "MAILLEZAIS": (46.3725, -0.7383),
-    "LA ROCHELLE": (46.1603, -1.1511),
-    "LES MATHES": (45.7183, -1.1472),
-    "BRESSUIRE": (46.8406, -0.4939),
-    "POUFFONDS": (46.1736, -0.1558),
-    "ST LAURENT SUR SEVRE": (46.9583, -0.8931),
-    "PARIS": (48.8566, 2.3522),
-    "LUCS SUR BOULOGNE": (46.8439, -1.4939),
-    "LES LUCS SUR BOULOGNE": (46.8439, -1.4939),
-    "NUEIL LES AUBIERS": (46.9372, -0.5897),
-    "LA CHAPELLE DES POTS": (45.7608, -0.5408),
-    "AIGONNAY": (46.3411, -0.2447),
-    "FONTENAY LE COMTE": (46.4667, -0.8000),
-    "SAIVRES": (46.4250, -0.2319),
-    "SAINTE SOULLE": (46.1856, -1.0117),
-    "CUGAND": (47.0628, -1.2542),
-    "ST MAIXENT L'ECOLE": (46.4117, -0.2078),
-    "CHAPELLE ST LAURENT": (46.8147, -0.4786),
-    "ARCHINGEAY": (45.9328, -0.6558),
-    "MERVENT": (46.5228, -0.7553),
-    "VALLET": (47.1611, -1.2658),
-    "AIGONDIGNE": (46.3486, -0.2883),
-    "BOURNEZEAU": (46.6358, -1.1689),
-    "VINCENNES": (48.8475, 2.4392),
-    "ISSY LES MOULINEAUX": (48.8239, 2.2703),
-    "CHAMPDENIERS": (46.4842, -0.4028),
-    "CHAUCHE": (46.8308, -1.2694),
-    "CHARENTON LE PONT": (48.8222, 2.4144),
-    "AIGREFEUILLE D'AUNIS": (46.1181, -0.9328),
-    "BOISSIERE DE MONTAIGU": (46.9806, -1.1917),
-    "VOLVIC": (45.8711, 3.0372),
-    "ST JEAN DE MONTS": (46.7922, -2.0603),
-    "MORTAGNE / SEVRE": (46.9931, -0.9542),
-    "MORTAGNE SUR SEVRE": (46.9931, -0.9542),
-    "ROCHEFORT": (45.9428, -0.9631),
-    "ST MARTIN DES NOYERS": (46.7239, -1.1783),
-    "LONGEVILLE SUR MER": (46.4239, -1.4889),
-    "LA GAUBRETIERE": (46.9458, -1.0664),
-    "BEAULIEU SOUS LA ROCHE": (46.6764, -1.6094),
-    "SAUMUR": (47.2603, -0.0769),
-    "L'OIE": (46.7981, -1.1325),
-    "ST HILAIRE DE RIEZ": (46.7214, -1.9453),
-    "POUZAUGES": (46.7833, -0.8333),
-    "VENAUSAULT": (46.6858, -1.5125),
-    "NIORT": (46.3237, -0.4648),
-    "LUCON": (46.4550, -1.1664),
-    "LA TRANCHE / MER": (46.3439, -1.4389),
-    "LA TRANCHE SUR MER": (46.3439, -1.4389),
-    "NOIRMOUTIER": (47.0003, -2.2417),
-    "LES SABLES D'OLONNES": (46.4972, -1.7833),
-    "LES SABLES D'OLONNE": (46.4972, -1.7833),
-    "PARTHENAY": (46.6486, -0.2483),
-    "LA ROCHE SUR YON": (46.6705, -1.4265),
-    "CHATELAILLON-PLAGE": (46.0728, -1.0881),
-    "CHATELAILLON": (46.0728, -1.0881),
-    "LES HERBIERS": (46.8681, -1.0094),
-    "NANTES": (47.2181, -1.5536),
-    "CHANTONNAY": (46.6881, -1.0506),
-    "MONTAIGU": (46.9739, -1.3125),
-    "AIRVAULT": (46.8267, -0.1389),
-    "TALMONT ST HILAIRE": (46.4683, -1.6186),
-    "SAINTE NEOMAYE": (46.3719, -0.2589),
-    "MAGNÉ": (46.3153, -0.5461)
+    "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
+    "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
+    "ST LAURENT SUR SEVRE": (46.9583, -0.8931), "PARIS": (48.8566, 2.3522), "LUCS SUR BOULOGNE": (46.8439, -1.4939),
+    "LES LUCS SUR BOULOGNE": (46.8439, -1.4939), "NUEIL LES AUBIERS": (46.9372, -0.5897),
+    "LA CHAPELLE DES POTS": (45.7608, -0.5408), "AIGONNAY": (46.3411, -0.2447), "FONTENAY LE COMTE": (46.4667, -0.8000),
+    "SAIVRES": (46.4250, -0.2319), "SAINTE SOULLE": (46.1856, -1.0117), "CUGAND": (47.0628, -1.2542),
+    "ST MAIXENT L'ECOLE": (46.4117, -0.2078), "CHAPELLE ST LAURENT": (46.8147, -0.4786),
+    "ARCHINGEAY": (45.9328, -0.6558), "MERVENT": (46.5228, -0.7553), "VALLET": (47.1611, -1.2658),
+    "AIGONDIGNE": (46.3486, -0.2883), "BOURNEZEAU": (46.6358, -1.1689), "VINCENNES": (48.8475, 2.4392),
+    "ISSY LES MOULINEAUX": (48.8239, 2.2703), "CHAMPDENIERS": (46.4842, -0.4028), "CHAUCHE": (46.8308, -1.2694),
+    "CHARENTON LE PONT": (48.8222, 2.4144), "AIGREFEUILLE D'AUNIS": (46.1181, -0.9328),
+    "BOISSIERE DE MONTAIGU": (46.9806, -1.1917), "VOLVIC": (45.8711, 3.0372), "ST JEAN DE MONTS": (46.7922, -2.0603),
+    "MORTAGNE / SEVRE": (46.9931, -0.9542), "MORTAGNE SUR SEVRE": (46.9931, -0.9542), "ROCHEFORT": (45.9428, -0.9631),
+    "ST MARTIN DES NOYERS": (46.7239, -1.1783), "LONGEVILLE SUR MER": (46.4239, -1.4889),
+    "LA GAUBRETIERE": (46.9458, -1.0664), "BEAULIEU SOUS LA ROCHE": (46.6764, -1.6094), "SAUMUR": (47.2603, -0.0769),
+    "L'OIE": (46.7981, -1.1325), "ST HILAIRE DE RIEZ": (46.7214, -1.9453), "POUZAUGES": (46.7833, -0.8333),
+    "VENAUSAULT": (46.6858, -1.5125), "NIORT": (46.3237, -0.4648), "LUCON": (46.4550, -1.1664),
+    "LA TRANCHE / MER": (46.3439, -1.4389), "LA TRANCHE SUR MER": (46.3439, -1.4389), "NOIRMOUTIER": (47.0003, -2.2417),
+    "LES SABLES D'OLONNES": (46.4972, -1.7833), "LES SABLES D'OLONNE": (46.4972, -1.7833), "PARTHENAY": (46.6486, -0.2483),
+    "LA ROCHE SUR YON": (46.6705, -1.4265), "CHATELAILLON-PLAGE": (46.0728, -1.0881), "CHATELAILLON": (46.0728, -1.0881),
+    "LES HERBIERS": (46.8681, -1.0094), "NANTES": (47.2181, -1.5536), "CHANTONNAY": (46.6881, -1.0506),
+    "MONTAIGU": (46.9739, -1.3125), "AIRVAULT": (46.8267, -0.1389), "TALMONT ST HILAIRE": (46.4683, -1.6186),
+    "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461)
 }
 
 def get_coords_fast(lieu_str):
@@ -145,12 +104,13 @@ default_idx = 0
 if course_url and course_url in liste_courses:
     default_idx = list(liste_courses).index(course_url)
 
-# 5. Organisation en onglets
-tab_fiche, tab_cal, tab_carte, tab_membre = st.tabs([
+# 5. Organisation en onglets (AJOUT DE L'ONGLET ADMIN)
+tab_fiche, tab_cal, tab_carte, tab_membre, tab_admin = st.tabs([
     "📋 Fiche & Inscription", 
     "📅 Calendrier Visuel", 
     "🗺️ Carte des courses",
-    "👤 Fiche Membre"
+    "👤 Fiche Membre",
+    "⚙️ Admin Migration"
 ])
 
 # --- TAB 1 : FICHE & INSCRIPTION ---
@@ -197,15 +157,15 @@ with tab_fiche:
             
             if submit and nom:
                 nouvelle_inscription = pd.DataFrame([{
-    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"),
-    "Nom_Membre": nom,
-    "Nom_Course": course_choisie,
-    "Date": infos['Date'],  # <--- NOUVEAU
-    "Lieu": infos['Lieu'],  # <--- NOUVEAU
-    "Distance": distance,
-    "Statut": "Inscrit",
-    "Resultat": ""
-}])
+                    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "Date": infos['Date'],            # Ajout auto de la Date
+                    "Lieu": infos['Lieu'],            # Ajout auto du Lieu
+                    "Nom_Membre": nom,
+                    "Nom_Course": course_choisie,
+                    "Distance": distance,
+                    "Statut": "Inscrit",
+                    "Resultat": ""
+                }])
                 df_updated = pd.concat([df_participations, nouvelle_inscription], ignore_index=True)
                 conn.update(worksheet="PARTICIPATIONS", data=df_updated)
                 st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
@@ -217,12 +177,7 @@ with tab_cal:
     
     col_m, _ = st.columns([2, 3])
     with col_m:
-        mois_selectionne = st.selectbox(
-            "Choisir le mois :",
-            range(1, 13),
-            index=0,
-            format_func=lambda m: f"{MOIS_FR[m]} 2026"
-        )
+        mois_selectionne = st.selectbox("Choisir le mois :", range(1, 13), index=0, format_func=lambda m: f"{MOIS_FR[m]} 2026")
 
     cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdayscalendar(2026, mois_selectionne)
@@ -237,54 +192,12 @@ with tab_cal:
     .cal-td {{ border: 1px solid #ddd; vertical-align: top; height: 110px; padding: 5px; background-color: #ffffff; position: relative; }}
     .cal-empty {{ background-color: #f8f9fa; }}
     .day-num {{ font-weight: bold; font-size: 12px; color: #444; margin-bottom: 4px; }}
-    
-    .event-card {{
-        position: relative;
-        padding: 4px 6px;
-        margin-bottom: 4px;
-        border-radius: 4px;
-        font-size: 11px;
-        cursor: pointer;
-    }}
+    .event-card {{ position: relative; padding: 4px 6px; margin-bottom: 4px; border-radius: 4px; font-size: 11px; cursor: pointer; }}
     .event-red {{ background-color: #ffe6e6; color: #cc0000; border-left: 3px solid #cc0000; font-weight: bold; }}
     .event-blue {{ background-color: #e6f0ff; color: #004085; border-left: 3px solid #0066cc; }}
-    
-    .tooltip-content {{
-        visibility: hidden;
-        width: 210px;
-        background-color: #1e293b;
-        color: #ffffff;
-        text-align: left;
-        border-radius: 6px;
-        padding: 8px 10px;
-        position: absolute;
-        z-index: 999;
-        bottom: 100%;
-        left: 50%;
-        transform: translateX(-50%);
-        box-shadow: 0px 4px 12px rgba(0,0,0,0.3);
-        font-size: 11px;
-        line-height: 1.4;
-        white-space: normal;
-        opacity: 0;
-        transition: opacity 0.15s ease-in-out;
-        margin-bottom: 6px;
-        pointer-events: none;
-    }}
-    .tooltip-content::after {{
-        content: "";
-        position: absolute;
-        top: 100%;
-        left: 50%;
-        margin-left: -5px;
-        border-width: 5px;
-        border-style: solid;
-        border-color: #1e293b transparent transparent transparent;
-    }}
-    .event-card:hover .tooltip-content {{
-        visibility: visible;
-        opacity: 1;
-    }}
+    .tooltip-content {{ visibility: hidden; width: 210px; background-color: #1e293b; color: #ffffff; text-align: left; border-radius: 6px; padding: 8px 10px; position: absolute; z-index: 999; bottom: 100%; left: 50%; transform: translateX(-50%); box-shadow: 0px 4px 12px rgba(0,0,0,0.3); font-size: 11px; line-height: 1.4; white-space: normal; opacity: 0; transition: opacity 0.15s ease-in-out; margin-bottom: 6px; pointer-events: none; }}
+    .tooltip-content::after {{ content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border-width: 5px; border-style: solid; border-color: #1e293b transparent transparent transparent; }}
+    .event-card:hover .tooltip-content {{ visibility: visible; opacity: 1; }}
 </style>
 <script>
     function navToCourse(courseName) {{
@@ -292,9 +205,7 @@ with tab_cal:
             var parentUrl = new URL(window.parent.location.href);
             parentUrl.searchParams.set('course', courseName);
             window.parent.location.href = parentUrl.toString();
-        }} catch(e) {{
-            window.top.location.search = '?course=' + encodeURIComponent(courseName);
-        }}
+        }} catch(e) {{ window.top.location.search = '?course=' + encodeURIComponent(courseName); }}
     }}
 </script>
 </head>
@@ -302,13 +213,7 @@ with tab_cal:
 <table class="cal-table">
     <thead>
         <tr>
-            <th class="cal-th">LUNDI</th>
-            <th class="cal-th">MARDI</th>
-            <th class="cal-th">MERCREDI</th>
-            <th class="cal-th">JEUDI</th>
-            <th class="cal-th">VENDREDI</th>
-            <th class="cal-th">SAMEDI</th>
-            <th class="cal-th">DIMANCHE</th>
+            <th class="cal-th">LUNDI</th><th class="cal-th">MARDI</th><th class="cal-th">MERCREDI</th><th class="cal-th">JEUDI</th><th class="cal-th">VENDREDI</th><th class="cal-th">SAMEDI</th><th class="cal-th">DIMANCHE</th>
         </tr>
     </thead>
     <tbody>"""
@@ -327,44 +232,24 @@ with tab_cal:
                 for _, row in courses_jour.iterrows():
                     nom_raw = str(row['Nom de la course'])
                     nom_c = html.escape(nom_raw)
-                    lieu_c = html.escape(str(row['Lieu']))
-                    type_c = html.escape(str(row['Type de course']))
-                    detail_c = html.escape(str(row['Détail']))
                     
                     inscrits_df = df_participations[df_participations['Nom_Course'] == nom_raw]
                     inscrits_liste = inscrits_df['Nom_Membre'].tolist()
                     nb_inscrits = len(inscrits_liste)
                     
-                    inscrits_html = ""
-                    if nb_inscrits > 0:
-                        membres_str = ", ".join([html.escape(m) for m in inscrits_liste])
-                        inscrits_html = f"<br><b>👥 Inscrits ({nb_inscrits}) :</b><br>{membres_str}"
-                    else:
-                        inscrits_html = "<br><i>Aucun membre inscrit</i>"
-                    
-                    tooltip_body = f"""<b>{nom_c}</b><br>📍 {lieu_c}<br>🏃 {type_c} ({detail_c}){inscrits_html}<br><br><span style='color: #38bdf8; font-weight: bold;'>👉 Clic pour m'inscrire</span>"""
-                    
-                    nom_escaped_js = nom_raw.replace("'", "\\'").replace('"', '\\"')
-                    click_action = f"navToCourse('{nom_escaped_js}')"
+                    inscrits_html = f"<br><b>👥 Inscrits ({nb_inscrits}) :</b><br>" + ", ".join([html.escape(m) for m in inscrits_liste]) if nb_inscrits > 0 else "<br><i>Aucun membre inscrit</i>"
+                    tooltip_body = f"<b>{nom_c}</b><br>📍 {html.escape(str(row['Lieu']))}<br>🏃 {html.escape(str(row['Type de course']))} ({html.escape(str(row['Détail']))}){inscrits_html}<br><br><span style='color: #38bdf8; font-weight: bold;'>👉 Clic pour m'inscrire</span>"
+                    click_action = f"navToCourse('{nom_raw.replace('`', '').replace('"', '').replace('+', '')}')"
                     
                     if nb_inscrits > 0:
-                        cell_content += f"""
-                        <div class="event-card event-red" onclick="{click_action}">
-                            🔴 {nom_c} ({nb_inscrits})
-                            <div class="tooltip-content">{tooltip_body}</div>
-                        </div>"""
+                        cell_content += f'<div class="event-card event-red" onclick="{click_action}">🔴 {nom_c} ({nb_inscrits})<div class="tooltip-content">{tooltip_body}</div></div>'
                     else:
-                        cell_content += f"""
-                        <div class="event-card event-blue" onclick="{click_action}">
-                            🏃 {nom_c}
-                            <div class="tooltip-content">{tooltip_body}</div>
-                        </div>"""
+                        cell_content += f'<div class="event-card event-blue" onclick="{click_action}">🏃 {nom_c}<div class="tooltip-content">{tooltip_body}</div></div>'
                         
                 html_code += f'<td class="cal-td">{cell_content}</td>'
         html_code += "</tr>"
 
     html_code += "</tbody></table></body></html>"
-
     components.html(html_code, height=680, scrolling=True)
 
 # --- TAB 3 : CARTE INTERACTIVE ---
@@ -372,10 +257,8 @@ with tab_carte:
     st.subheader("🗺️ Localisation des courses")
     
     filtre_inscrits = st.checkbox("🚩 Afficher uniquement les courses avec des Raids Dingues inscrits", value=False)
-    st.caption("Passe la souris ou clique sur un marqueur pour afficher l'événement.")
     
     m = folium.Map(location=[46.67, -1.42], zoom_start=8, tiles="OpenStreetMap")
-    
     for _, row in df_courses.iterrows():
         nom_c = str(row['Nom de la course'])
         inscrits_df = df_participations[df_participations['Nom_Course'] == nom_c]
@@ -389,19 +272,9 @@ with tab_carte:
             icon_color = "red" if nb_inscrits > 0 else "blue"
             icon_name, icon_prefix = get_icon_details(row['Type de course'])
             
-            popup_html = f"""
-            <div style='font-family: sans-serif; width: 180px;'>
-                <b>{html.escape(nom_c)}</b><br>
-                📅 {row['Date']}<br>
-                📍 {row['Lieu']}<br>
-                🏃 {row['Type de course']}<br>
-                <small>{row['Détail']}</small><br>
-                <b>👥 Inscrits : {nb_inscrits}</b>
-            </div>
-            """
+            popup_html = f"<div style='font-family: sans-serif; width: 180px;'><b>{html.escape(nom_c)}</b><br>📅 {row['Date']}<br>📍 {row['Lieu']}<br>🏃 {row['Type de course']}<br><small>{row['Détail']}</small><br><b>👥 Inscrits : {nb_inscrits}</b></div>"
             folium.Marker(
-                location=[lat, lon],
-                popup=folium.Popup(popup_html, max_width=220),
+                location=[lat, lon], popup=folium.Popup(popup_html, max_width=220),
                 tooltip=f"{nom_c} ({row['Date']}) - {nb_inscrits} inscrit(s)",
                 icon=folium.Icon(color=icon_color, icon=icon_name, prefix=icon_prefix)
             ).add_to(m)
@@ -411,36 +284,68 @@ with tab_carte:
 # --- TAB 4 : FICHE MEMBRE ET SUIVI ---
 with tab_membre:
     st.subheader("👤 Suivi individuel des membres")
-    
     membres_dispos = liste_membres if liste_membres else sorted(df_participations["Nom_Membre"].dropna().unique().tolist())
     
     if not membres_dispos:
         st.info("Aucun membre disponible.")
     else:
         membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_dispos)
-        
         if membre_choisi:
             p_membre = df_participations[df_participations["Nom_Membre"].str.strip().str.upper() == membre_choisi.strip().upper()] if not df_participations.empty else pd.DataFrame()
-            
             if p_membre.empty:
-                st.info(f"{membre_choisi} n'a aucune inscription enregistrée pour le moment.")
+                st.info(f"{membre_choisi} n'a aucune inscription.")
             else:
-                details_membre = p_membre.merge(
-                    df_courses[["Nom de la course", "Date", "Lieu", "Type de course"]],
-                    left_on="Nom_Course",
-                    right_on="Nom de la course",
-                    how="left"
-                )
+                details_membre = p_membre.merge(df_courses[["Nom de la course", "Date", "Lieu", "Type de course"]], left_on="Nom_Course", right_on="Nom de la course", how="left")
+                st.metric("Total d'inscriptions 2026", len(details_membre))
+                st.dataframe(details_membre[["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"]], hide_index=True, use_container_width=True)
+
+# --- TAB 5 : OUTIL DE MIGRATION ---
+with tab_admin:
+    st.subheader("🛠️ Outil d'extraction (Matrice 2026 -> Liste PARTICIPATIONS)")
+    st.info("Cet outil lit ta grande grille '2026', la nettoie et génère un fichier propre à copier/coller dans l'onglet PARTICIPATIONS.")
+    
+    if st.button("🚀 Lancer l'extraction des données"):
+        with st.spinner("Analyse de l'onglet 2026 en cours..."):
+            try:
+                df_mat = conn.read(worksheet="2026", header=None, ttl=0) # Lecture brute
+                course_names = df_mat.iloc[2, 1:].values
+                dates = df_mat.iloc[3, 1:].values
+                lieux = df_mat.iloc[4, 1:].values
                 
-                col_m1, col_m2 = st.columns(2)
-                with col_m1:
-                    st.metric("Total d'inscriptions 2026", len(details_membre))
+                df_membres_mat = df_mat.iloc[10:, :] # On saute les en-têtes
+                df_membres_mat = df_membres_mat.dropna(subset=[0]) # On ne garde que les lignes avec un nom
                 
-                st.write("### 📜 Participations & Résultats :")
+                participations_extraites = []
+                for idx, row in df_membres_mat.iterrows():
+                    nom_membre = str(row[0]).strip()
+                    if not nom_membre or nom_membre.lower() == "nan":
+                        continue
+                        
+                    for col_idx in range(1, len(row)):
+                        val = row.iloc[col_idx]
+                        if pd.notna(val) and str(val).strip() != "":
+                            c_name = str(course_names[col_idx - 1])
+                            if c_name != "nan" and c_name.strip() != "":
+                                participations_extraites.append({
+                                    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                                    "Date": str(dates[col_idx - 1]),
+                                    "Lieu": str(lieux[col_idx - 1]),
+                                    "Nom_Membre": nom_membre,
+                                    "Nom_Course": c_name,
+                                    "Distance": str(val).strip(),
+                                    "Statut": "Inscrit",
+                                    "Resultat": ""
+                                })
                 
-                df_affichage = details_membre[["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"]]
-                st.dataframe(
-                    df_affichage,
-                    hide_index=True,
-                    use_container_width=True
-                )
+                if participations_extraites:
+                    df_export = pd.DataFrame(participations_extraites)
+                    st.success(f"✅ Opération réussie ! {len(df_export)} participations récupérées.")
+                    st.dataframe(df_export)
+                    
+                    csv = df_export.to_csv(index=False, sep=";").encode('utf-8-sig')
+                    st.download_button("📥 Télécharger le fichier CSV", data=csv, file_name='participations_migrees.csv', mime='text/csv')
+                    st.warning("👉 Ouvre ce fichier avec Excel, copie toutes les lignes, et colle-les dans ton onglet PARTICIPATIONS du Google Sheet.")
+                else:
+                    st.error("Aucune donnée trouvée.")
+            except Exception as e:
+                st.error(f"Une erreur est survenue : {e}")
