@@ -10,7 +10,31 @@ import streamlit.components.v1 as components
 import re
 import unicodedata
 
-# Fonction pour supprimer tous les accents lors des comparaisons
+# Dictionnaire complet des départements français
+DEPTS_NAMES = {
+    "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence", "05": "Hautes-Alpes",
+    "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes", "09": "Ariège", "10": "Aube",
+    "11": "Aude", "12": "Aveyron", "13": "Bouches-du-Rhône", "14": "Calvados", "15": "Cantal",
+    "16": "Charente", "17": "Charente-Maritime", "18": "Cher", "19": "Corrèze", "2A": "Corse-du-Sud",
+    "2B": "Haute-Corse", "21": "Côte-d'Or", "22": "Côtes-d'Armor", "23": "Creuse", "24": "Dordogne",
+    "25": "Doubs", "26": "Drôme", "27": "Eure", "28": "Eure-et-Loir", "29": "Finistère",
+    "30": "Gard", "31": "Haute-Garonne", "32": "Gers", "33": "Gironde", "34": "Hérault",
+    "35": "Ille-et-Vilaine", "36": "Indre", "37": "Indre-et-Loire", "38": "Isère", "39": "Jura",
+    "40": "Landes", "41": "Loir-et-Cher", "42": "Loire", "43": "Haute-Loire", "44": "Loire-Atlantique",
+    "45": "Loiret", "46": "Lot", "47": "Lot-et-Garonne", "48": "Lozère", "49": "Maine-et-Loire",
+    "50": "Manche", "51": "Marne", "52": "Haute-Marne", "53": "Mayenne", "54": "Meurthe-et-Moselle",
+    "55": "Meuse", "56": "Morbihan", "57": "Moselle", "58": "Nièvre", "59": "Nord",
+    "60": "Oise", "61": "Orne", "62": "Pas-de-Calais", "63": "Puy-de-Dôme", "64": "Pyrénées-Atlantiques",
+    "65": "Hautes-Pyrénées", "66": "Pyrénées-Orientales", "67": "Bas-Rhin", "68": "Haut-Rhin", "69": "Rhône",
+    "70": "Haute-Saône", "71": "Saône-et-Loire", "72": "Sarthe", "73": "Savoie", "74": "Haute-Savoie",
+    "75": "Paris", "76": "Seine-Maritime", "77": "Seine-et-Marne", "78": "Yvelines", "79": "Deux-Sèvres",
+    "80": "Somme", "81": "Tarn", "82": "Tarn-et-Garonne", "83": "Var", "84": "Vaucluse",
+    "85": "Vendée", "86": "Vienne", "87": "Haute-Vienne", "88": "Vosges", "89": "Yonne",
+    "90": "Territoire de Belfort", "91": "Essonne", "92": "Hauts-de-Seine", "93": "Seine-Saint-Denis",
+    "94": "Val-de-Marne", "95": "Val-d'Oise", "971": "Guadeloupe", "972": "Martinique", "973": "Guyane",
+    "974": "La Réunion", "976": "Mayotte"
+}
+
 def strip_accents(text):
     if not isinstance(text, str):
         return ""
@@ -18,7 +42,6 @@ def strip_accents(text):
     text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
     return text.strip().upper()
 
-# Extraction du numéro de département depuis le champ Lieu
 def extract_dept(lieu_str):
     if pd.isna(lieu_str):
         return None
@@ -36,7 +59,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Lecture de l'onglet MEMBRES pour la liste déroulante ET le sexe (insensible aux accents)
+# Lecture de l'onglet MEMBRES
 df_membres_clean = pd.DataFrame()
 try:
     df_membres = conn.read(worksheet="MEMBRES", ttl=10)
@@ -49,7 +72,7 @@ try:
 except Exception:
     liste_membres = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if "Nom_Membre" in df_participations.columns else []
 
-# Correction automatique des colonnes dans PARTICIPATIONS
+# Correction automatique des colonnes
 rename_cols = {}
 for c in df_participations.columns:
     if "sultat" in str(c).lower():
@@ -62,19 +85,16 @@ for c in df_participations.columns:
 if rename_cols:
     df_participations = df_participations.rename(columns=rename_cols)
 
-# Nettoyage et conversion des dates
+# Conversion des dates et extraction des départements
 df_courses['Date_dt'] = pd.to_datetime(df_courses['Date'], format='%d/%m/%Y', errors='coerce')
 df_courses = df_courses.sort_values(by='Date_dt')
-
-# Extraction des départements
-df_courses['Dept'] = df_courses['Lieu'].apply(extract_dept)
+df_courses['Dept_Code'] = df_courses['Lieu'].apply(extract_dept)
 
 MOIS_FR = {
     1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin",
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# 3. Base de coordonnées GPS
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -139,10 +159,10 @@ liste_courses = df_courses["Nom de la course"].dropna().unique()
 course_url = st.query_params.get("course", None)
 default_idx = list(liste_courses).index(course_url) if course_url and course_url in liste_courses else 0
 
-# --- BANDEAU D'INDICATEURS CLÉS (KPI) ---
+# --- BANDEAU D'INDICATEURS CLÉS ---
 kpi_events = df_courses["Nom de la course"].nunique()
 kpi_inscriptions = len(df_participations)
-kpi_depts = df_courses["Dept"].dropna().nunique()
+kpi_depts = df_courses["Dept_Code"].dropna().nunique()
 
 col_k1, col_k2, col_k3 = st.columns(3)
 with col_k1:
@@ -155,8 +175,13 @@ with col_k3:
 st.divider()
 
 # 4. Organisation en onglets
-tab_fiche, tab_cal, tab_carte, tab_membre, tab_stats = st.tabs([
-    "📋 Fiche & Inscription", "📅 Calendrier Visuel", "🗺️ Carte des courses", "👤 Fiche Membre", "🏆 Classement Kilométrique"
+tab_fiche, tab_cal, tab_carte, tab_membre, tab_stats_km, tab_stats_glob = st.tabs([
+    "📋 Fiche & Inscription", 
+    "📅 Calendrier Visuel", 
+    "🗺️ Carte des courses", 
+    "👤 Fiche Membre", 
+    "🏆 Classement Kilométrique",
+    "📊 Statistiques Globales"
 ])
 
 # --- TAB 1 : FICHE & INSCRIPTION ---
@@ -357,7 +382,7 @@ with tab_membre:
                 st.dataframe(details_membre[disp_cols_m], hide_index=True, use_container_width=True)
 
 # --- TAB 5 : CLASSEMENT KILOMETRIQUE ---
-with tab_stats:
+with tab_stats_km:
     st.subheader("🏆 Classement Kilométrique du Club (2026)")
     
     if df_participations.empty: 
@@ -398,3 +423,74 @@ with tab_stats:
             use_container_width=True,
             hide_index=True
         )
+
+# --- TAB 6 : STATISTIQUES GLOBALES ---
+with tab_stats_glob:
+    st.subheader("📊 Statistiques Récapitulatives 2026")
+    
+    col_s_left, col_s_right = st.columns([1, 1])
+    
+    # --- COLONNE GAUCHE ---
+    with col_s_left:
+        # 1. Nombre de manifestations par mois
+        st.write("#### 📅 Nombre de manifestations par mois")
+        
+        counts_by_month = []
+        for m_num in range(1, 13):
+            nb_m = len(df_courses[df_courses['Date_dt'].dt.month == m_num])
+            counts_by_month.append({
+                "Mois": MOIS_FR[m_num],
+                "Nombre de manifestations": nb_m
+            })
+            
+        df_month_stats = pd.DataFrame(counts_by_month)
+        total_manifestations = df_month_stats["Nombre de manifestations"].sum()
+        
+        # Ligne TOTAL
+        df_month_stats_total = pd.concat([
+            df_month_stats,
+            pd.DataFrame([{"Mois": "TOTAL", "Nombre de manifestations": total_manifestations}])
+        ], ignore_index=True)
+        
+        st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
+        st.write("")
+        
+        # 2. Lieu des courses (par département)
+        st.write("#### 🗺️ Lieu des courses (Départements)")
+        
+        df_depts = df_courses['Dept_Code'].dropna().value_counts().reset_index()
+        df_depts.columns = ['Code_Dept', 'Nombre de courses']
+        
+        # Ajout du nom du département
+        df_depts['Lieu des courses'] = df_depts['Code_Dept'].apply(
+            lambda code: f"{code} - {DEPTS_NAMES.get(code, 'Inconnu')}"
+        )
+        
+        df_depts = df_depts.sort_values(by='Code_Dept')[['Lieu des courses', 'Nombre de courses']]
+        st.dataframe(df_depts, hide_index=True, use_container_width=True)
+
+    # --- COLONNE DROITE ---
+    with col_s_right:
+        # 3. Nombre de participants par manifestation
+        st.write("#### 👥 Nombre de participants par manifestation")
+        
+        total_participants = len(df_participations)
+        st.metric("Total de participants à date", total_participants)
+        
+        if df_participations.empty:
+            st.info("Aucune participation enregistrée pour le moment.")
+        else:
+            df_part_course = df_participations.groupby("Nom_Course").size().reset_index(name="Nombre de participants")
+            
+            # Jointure avec la date de BDD 2026 pour trier par chronologie
+            df_part_course = df_part_course.merge(
+                df_courses[['Nom de la course', 'Date_dt']], 
+                left_on='Nom_Course', 
+                right_on='Nom de la course', 
+                how='left'
+            )
+            
+            df_part_course = df_part_course.sort_values(by=['Date_dt', 'Nombre de participants'], ascending=[True, False])
+            
+            df_part_display = df_part_course.rename(columns={'Nom_Course': 'Manifestation'})[['Manifestation', 'Nombre de participants']]
+            st.dataframe(df_part_display, hide_index=True, use_container_width=True)
