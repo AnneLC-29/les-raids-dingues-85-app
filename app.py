@@ -18,6 +18,13 @@ def strip_accents(text):
     text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
     return text.strip().upper()
 
+# Extraction du numéro de département depuis le champ Lieu
+def extract_dept(lieu_str):
+    if pd.isna(lieu_str):
+        return None
+    match = re.search(r'\((\d{2,3}|2A|2B)\)', str(lieu_str))
+    return match.group(1) if match else None
+
 # 1. Configuration de la page
 st.set_page_config(page_title="Raids Dingues 85", page_icon="🏃‍♂️", layout="wide")
 st.title("🏃‍♂️ Raids Dingues 85")
@@ -58,6 +65,9 @@ if rename_cols:
 # Nettoyage et conversion des dates
 df_courses['Date_dt'] = pd.to_datetime(df_courses['Date'], format='%d/%m/%Y', errors='coerce')
 df_courses = df_courses.sort_values(by='Date_dt')
+
+# Extraction des départements
+df_courses['Dept'] = df_courses['Lieu'].apply(extract_dept)
 
 MOIS_FR = {
     1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin",
@@ -129,6 +139,22 @@ liste_courses = df_courses["Nom de la course"].dropna().unique()
 course_url = st.query_params.get("course", None)
 default_idx = list(liste_courses).index(course_url) if course_url and course_url in liste_courses else 0
 
+# --- BANDEAU D'INDICATEURS CLÉS (KPI) ---
+kpi_events = df_courses["Nom de la course"].nunique()
+kpi_inscriptions = len(df_participations)
+kpi_depts = df_courses["Dept"].dropna().nunique()
+
+col_k1, col_k2, col_k3 = st.columns(3)
+with col_k1:
+    st.metric("📅 Événements au calendrier", kpi_events)
+with col_k2:
+    st.metric("✍️ Inscriptions enregistrées", kpi_inscriptions)
+with col_k3:
+    st.metric("🗺️ Départements parcourus", kpi_depts)
+
+st.divider()
+
+# 4. Organisation en onglets
 tab_fiche, tab_cal, tab_carte, tab_membre, tab_stats = st.tabs([
     "📋 Fiche & Inscription", "📅 Calendrier Visuel", "🗺️ Carte des courses", "👤 Fiche Membre", "🏆 Classement Kilométrique"
 ])
@@ -337,13 +363,11 @@ with tab_stats:
     if df_participations.empty: 
         st.info("Aucune donnée disponible pour le classement.")
     else:
-        # Agrégation par membre
         stats_membres = df_participations.groupby("Nom_Membre").agg(
             Courses_Totales=('Nom_Course', 'count'),
             Km_Parcourus=('Km_Calc', 'sum')
         ).reset_index()
         
-        # Clé de correspondance nettoyée de tout accent
         stats_membres['Key_Match'] = stats_membres['Nom_Membre'].apply(strip_accents)
         
         if not df_membres_clean.empty:
