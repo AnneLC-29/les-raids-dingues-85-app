@@ -8,6 +8,15 @@ import folium
 from streamlit_folium import st_folium
 import streamlit.components.v1 as components
 import re
+import unicodedata
+
+# Fonction pour supprimer tous les accents lors des comparaisons
+def strip_accents(text):
+    if not isinstance(text, str):
+        return ""
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    return text.strip().upper()
 
 # 1. Configuration de la page
 st.set_page_config(page_title="Raids Dingues 85", page_icon="🏃‍♂️", layout="wide")
@@ -20,13 +29,13 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Lecture de l'onglet MEMBRES pour la liste déroulante ET le sexe (clef de jointure nettoyée)
+# Lecture de l'onglet MEMBRES pour la liste déroulante ET le sexe (insensible aux accents)
 df_membres_clean = pd.DataFrame()
 try:
     df_membres = conn.read(worksheet="MEMBRES", ttl=10)
     df_membres['Nom_Complet'] = df_membres['NOM'].astype(str).str.strip() + " " + df_membres['Prénom'].astype(str).str.strip()
     df_membres['Sexe_Clean'] = df_membres['Sexe'].astype(str).str.strip().str.upper()
-    df_membres['Key_Match'] = df_membres['Nom_Complet'].str.strip().str.upper()
+    df_membres['Key_Match'] = df_membres['Nom_Complet'].apply(strip_accents)
     
     df_membres_clean = df_membres[['Key_Match', 'Sexe_Clean']].drop_duplicates().copy()
     liste_membres = sorted(df_membres['Nom_Complet'].dropna().unique().tolist())
@@ -313,7 +322,7 @@ with tab_membre:
     else:
         membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_dispos)
         if membre_choisi:
-            p_membre = df_participations[df_participations["Nom_Membre"].str.strip().str.upper() == membre_choisi.strip().upper()] if not df_participations.empty else pd.DataFrame()
+            p_membre = df_participations[df_participations["Nom_Membre"].apply(strip_accents) == strip_accents(membre_choisi)] if not df_participations.empty else pd.DataFrame()
             if p_membre.empty: st.info(f"{membre_choisi} n'a aucune inscription.")
             else:
                 st.metric("Total d'inscriptions 2026", len(p_membre))
@@ -334,23 +343,19 @@ with tab_stats:
             Km_Parcourus=('Km_Calc', 'sum')
         ).reset_index()
         
-        # Clef majuscule pour la correspondance avec MEMBRES
-        stats_membres['Key_Match'] = stats_membres['Nom_Membre'].astype(str).str.strip().str.upper()
+        # Clé de correspondance nettoyée de tout accent
+        stats_membres['Key_Match'] = stats_membres['Nom_Membre'].apply(strip_accents)
         
         if not df_membres_clean.empty:
             stats_membres = stats_membres.merge(df_membres_clean, on='Key_Match', how='left')
-            
-            # Formatage du Sexe avec émoticônes
             sexe_map = {'H': '👨 Homme', 'F': '👩 Femme'}
             stats_membres['Sexe'] = stats_membres['Sexe_Clean'].map(sexe_map).fillna('❓ Non renseigné')
             stats_membres = stats_membres.drop(columns=['Key_Match', 'Sexe_Clean'])
         else:
             stats_membres['Sexe'] = '❓ Non renseigné'
             
-        # Tri par kilométrage
         stats_membres = stats_membres.sort_values(by=['Km_Parcourus', 'Nom_Membre'], ascending=[False, True])
         
-        # Préparation du DataFrame final d'affichage
         stats_display = stats_membres.rename(columns={
             'Nom_Membre': 'Membre',
             'Courses_Totales': 'Nb Inscriptions',
@@ -359,7 +364,6 @@ with tab_stats:
         
         stats_display['Distance Totale (km)'] = stats_display['Distance Totale (km)'].round(1)
         
-        # Fonction de mise en surbrillance pour les femmes
         def style_rows(row):
             if 'Femme' in str(row['Sexe']):
                 return ['background-color: #fef9c3; color: #1e293b; font-weight: 500;'] * len(row)
