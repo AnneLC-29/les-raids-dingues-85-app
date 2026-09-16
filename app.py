@@ -10,7 +10,7 @@ import streamlit.components.v1 as components
 import re
 import unicodedata
 
-# Dictionnaire complet des départements français
+# Dictionnaire des départements français
 DEPTS_NAMES = {
     "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence", "05": "Hautes-Alpes",
     "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes", "09": "Ariège", "10": "Aube",
@@ -159,18 +159,34 @@ liste_courses = df_courses["Nom de la course"].dropna().unique()
 course_url = st.query_params.get("course", None)
 default_idx = list(liste_courses).index(course_url) if course_url and course_url in liste_courses else 0
 
-# --- BANDEAU D'INDICATEURS CLÉS ---
-kpi_events = df_courses["Nom de la course"].nunique()
-kpi_inscriptions = len(df_participations)
-kpi_depts = df_courses["Dept_Code"].dropna().nunique()
+# --- FILTRAGE STRICT À DATE & AVEC INSCRITS POUR BANDEAU + TAB STATS ---
+today = datetime.now()
+courses_avec_inscrits = df_participations['Nom_Course'].dropna().unique()
+
+# Courses uniquement <= aujourd'hui ET avec au moins 1 inscrit
+df_courses_a_date = df_courses[
+    (df_courses['Nom de la course'].isin(courses_avec_inscrits)) &
+    (df_courses['Date_dt'].notna()) &
+    (df_courses['Date_dt'] <= today)
+].copy()
+
+# Participations associées à ces courses filtrées
+df_participations_a_date = df_participations[
+    df_participations['Nom_Course'].isin(df_courses_a_date['Nom de la course'])
+].copy()
+
+# --- BANDEAU D'INDICATEURS CLÉS (À DATE ET AVEC INSCRITS) ---
+kpi_events = df_courses_a_date["Nom de la course"].nunique()
+kpi_inscriptions = len(df_participations_a_date)
+kpi_depts = df_courses_a_date["Dept_Code"].dropna().nunique()
 
 col_k1, col_k2, col_k3 = st.columns(3)
 with col_k1:
-    st.metric("📅 Événements au calendrier", kpi_events)
+    st.metric("📅 Événements courus à date", kpi_events)
 with col_k2:
-    st.metric("✍️ Inscriptions enregistrées", kpi_inscriptions)
+    st.metric("✍️ Inscriptions à date", kpi_inscriptions)
 with col_k3:
-    st.metric("🗺️ Départements parcourus", kpi_depts)
+    st.metric("🗺️ Départements parcourus à date", kpi_depts)
 
 st.divider()
 
@@ -424,73 +440,73 @@ with tab_stats_km:
             hide_index=True
         )
 
-# --- TAB 6 : STATISTIQUES GLOBALES ---
+# --- TAB 6 : STATISTIQUES GLOBALES (RÉDUIT À DATE ET AVEC INSCRITS) ---
 with tab_stats_glob:
-    st.subheader("📊 Statistiques Récapitulatives 2026")
+    st.subheader("📊 Statistiques Récapitulatives (Événements courus à date)")
     
-    col_s_left, col_s_right = st.columns([1, 1])
-    
-    # --- COLONNE GAUCHE ---
-    with col_s_left:
-        # 1. Nombre de manifestations par mois
-        st.write("#### 📅 Nombre de manifestations par mois")
+    if df_courses_a_date.empty:
+        st.info("Aucun événement couru avec des inscrits à ce jour.")
+    else:
+        col_s_left, col_s_right = st.columns([1, 1])
         
-        counts_by_month = []
-        for m_num in range(1, 13):
-            nb_m = len(df_courses[df_courses['Date_dt'].dt.month == m_num])
-            counts_by_month.append({
-                "Mois": MOIS_FR[m_num],
-                "Nombre de manifestations": nb_m
-            })
+        # --- COLONNE GAUCHE ---
+        with col_s_left:
+            # 1. Nombre de manifestations par mois
+            st.write("#### 📅 Nombre de manifestations par mois (à date)")
             
-        df_month_stats = pd.DataFrame(counts_by_month)
-        total_manifestations = df_month_stats["Nombre de manifestations"].sum()
-        
-        # Ligne TOTAL
-        df_month_stats_total = pd.concat([
-            df_month_stats,
-            pd.DataFrame([{"Mois": "TOTAL", "Nombre de manifestations": total_manifestations}])
-        ], ignore_index=True)
-        
-        st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
-        st.write("")
-        
-        # 2. Lieu des courses (par département)
-        st.write("#### 🗺️ Lieu des courses (Départements)")
-        
-        df_depts = df_courses['Dept_Code'].dropna().value_counts().reset_index()
-        df_depts.columns = ['Code_Dept', 'Nombre de courses']
-        
-        # Ajout du nom du département
-        df_depts['Lieu des courses'] = df_depts['Code_Dept'].apply(
-            lambda code: f"{code} - {DEPTS_NAMES.get(code, 'Inconnu')}"
-        )
-        
-        df_depts = df_depts.sort_values(by='Code_Dept')[['Lieu des courses', 'Nombre de courses']]
-        st.dataframe(df_depts, hide_index=True, use_container_width=True)
-
-    # --- COLONNE DROITE ---
-    with col_s_right:
-        # 3. Nombre de participants par manifestation
-        st.write("#### 👥 Nombre de participants par manifestation")
-        
-        total_participants = len(df_participations)
-        st.metric("Total de participants à date", total_participants)
-        
-        if df_participations.empty:
-            st.info("Aucune participation enregistrée pour le moment.")
-        else:
-            df_part_course = df_participations.groupby("Nom_Course").size().reset_index(name="Nombre de participants")
+            counts_by_month = []
+            for m_num in range(1, 13):
+                nb_m = len(df_courses_a_date[df_courses_a_date['Date_dt'].dt.month == m_num])
+                counts_by_month.append({
+                    "Mois": MOIS_FR[m_num],
+                    "Nombre de manifestations": nb_m
+                })
+                
+            df_month_stats = pd.DataFrame(counts_by_month)
+            total_manifestations = df_month_stats["Nombre de manifestations"].sum()
             
-            # Jointure avec la date de BDD 2026 pour trier par chronologie
-            df_part_course = df_part_course.merge(
-                df_courses[['Nom de la course', 'Date_dt']], 
-                left_on='Nom_Course', 
-                right_on='Nom de la course', 
-                how='left'
+            df_month_stats_total = pd.concat([
+                df_month_stats,
+                pd.DataFrame([{"Mois": "TOTAL", "Nombre de manifestations": total_manifestations}])
+            ], ignore_index=True)
+            
+            st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
+            st.write("")
+            
+            # 2. Lieu des courses (par département)
+            st.write("#### 🗺️ Lieu des courses (Départements à date)")
+            
+            df_depts = df_courses_a_date['Dept_Code'].dropna().value_counts().reset_index()
+            df_depts.columns = ['Code_Dept', 'Nombre de courses']
+            
+            df_depts['Lieu des courses'] = df_depts['Code_Dept'].apply(
+                lambda code: f"{code} - {DEPTS_NAMES.get(code, 'Inconnu')}"
             )
             
-            df_part_course = df_part_course.sort_values(by=['Date_dt', 'Nombre de participants'], ascending=[True, False])
+            df_depts = df_depts.sort_values(by='Code_Dept')[['Lieu des courses', 'Nombre de courses']]
+            st.dataframe(df_depts, hide_index=True, use_container_width=True)
+
+        # --- COLONNE DROITE ---
+        with col_s_right:
+            # 3. Nombre de participants par manifestation
+            st.write("#### 👥 Nombre de participants par manifestation (à date)")
             
-            df_part_display = df_part_course.rename(columns={'Nom_Course': 'Manifestation'})[['Manifestation', 'Nombre de participants']]
-            st.dataframe(df_part_display, hide_index=True, use_container_width=True)
+            total_participants = len(df_participations_a_date)
+            st.metric("Total de participants à date", total_participants)
+            
+            if df_participations_a_date.empty:
+                st.info("Aucune participation enregistrée à date.")
+            else:
+                df_part_course = df_participations_a_date.groupby("Nom_Course").size().reset_index(name="Nombre de participants")
+                
+                df_part_course = df_part_course.merge(
+                    df_courses_a_date[['Nom de la course', 'Date_dt']], 
+                    left_on='Nom_Course', 
+                    right_on='Nom de la course', 
+                    how='left'
+                )
+                
+                df_part_course = df_part_course.sort_values(by=['Date_dt', 'Nombre de participants'], ascending=[True, False])
+                
+                df_part_display = df_part_course.rename(columns={'Nom_Course': 'Manifestation'})[['Manifestation', 'Nombre de participants']]
+                st.dataframe(df_part_display, hide_index=True, use_container_width=True)
