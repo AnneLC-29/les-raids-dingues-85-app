@@ -13,7 +13,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # Lecture des onglets
 # On commence à la ligne 3 (header=2) pour la BDD 2026
-df_courses = conn.read(worksheet="BDD 2026", header=2, ttl=10) 
+df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10) 
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
 # 3. Interface : Choix de la course
