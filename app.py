@@ -20,10 +20,13 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Lecture de l'onglet MEMBRES pour la liste déroulante
+# Lecture de l'onglet MEMBRES pour la liste déroulante ET le sexe
+df_membres_clean = pd.DataFrame()
 try:
     df_membres = conn.read(worksheet="MEMBRES", ttl=10)
     df_membres['Nom_Complet'] = df_membres['NOM'].astype(str).str.strip() + " " + df_membres['Prénom'].astype(str).str.strip()
+    df_membres['Sexe'] = df_membres['Sexe'].astype(str).str.strip().str.upper()
+    df_membres_clean = df_membres[['Nom_Complet', 'Sexe']].copy()
     liste_membres = sorted(df_membres['Nom_Complet'].dropna().unique().tolist())
 except Exception:
     liste_membres = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if "Nom_Membre" in df_participations.columns else []
@@ -249,7 +252,6 @@ with tab_carte:
         st.write(""); st.write("")
         filtre_inscrits = st.checkbox("🚩 Afficher uniquement les courses avec des Raids Dingues inscrits", value=False)
     
-    # Division de l'espace : 2/3 Carte, 1/3 Panneau latéral
     col_map, col_details = st.columns([2, 1])
     
     with col_map:
@@ -270,29 +272,23 @@ with tab_carte:
                 
                 popup_html = f"<div style='font-family: sans-serif; width: 180px;'><b>{html.escape(nom_c)}</b><br>📅 {row['Date']}<br>📍 {row['Lieu']}<br>🏃 {row['Type de course']}<br><small>{row['Détail']}</small><br><b>👥 Inscrits : {nb_inscrits}</b></div>"
                 
-                # Ajout du paramètre "name" indispensable pour récupérer l'info du clic dans st_folium
                 folium.Marker(
                     location=[lat, lon], popup=folium.Popup(popup_html, max_width=220),
                     tooltip=f"{nom_c} ({row['Date']})", name=nom_c,
                     icon=folium.Icon(color=icon_color, icon=icon_name, prefix=icon_prefix)
                 ).add_to(m)
                 
-        # Récupération de l'objet cliqué
         map_data = st_folium(m, width="100%", height=600, returned_objects=["last_object_clicked_tooltip"])
     
-    # --- Panneau de détails à droite ---
     with col_details:
         st.write("### 📜 Palmarès de la course")
-        
-        # Identification de la course cliquée via le tooltip retourné par st_folium
         course_cliquee = None
         if map_data and map_data.get("last_object_clicked_tooltip"):
             clicked_tooltip = map_data["last_object_clicked_tooltip"]
-            # Le tooltip est formaté comme "Nom Course (Date)". On extrait le nom.
             course_cliquee = clicked_tooltip.rsplit(" (", 1)[0].strip()
         
         if not course_cliquee:
-            st.info("👈 Clique sur un marqueur de la carte pour afficher la liste des participants et leurs classements.")
+            st.info("👈 Clique sur un marqueur de la carte pour afficher la liste des participants.")
         else:
             st.markdown(f"**Événement :** {course_cliquee}")
             inscrits_course = df_participations[df_participations["Nom_Course"] == course_cliquee]
@@ -302,11 +298,7 @@ with tab_carte:
                 st.write(f"🔗 [M'inscrire à {course_cliquee}](?course={course_cliquee})")
             else:
                 st.success(f"👥 {len(inscrits_course)} participant(s)")
-                
-                # Tri par distance (ordre décroissant) pour classer visuellement
                 inscrits_course = inscrits_course.sort_values(by="Km_Calc", ascending=False)
-                
-                # Création de l'affichage avec des colonnes propres
                 disp_cols_c = [c for c in ["Nom_Membre", "Distance", "Resultat"] if c in inscrits_course.columns]
                 st.dataframe(inscrits_course[disp_cols_c], hide_index=True, use_container_width=True)
 
@@ -331,11 +323,35 @@ with tab_membre:
 with tab_stats:
     st.subheader("🏆 Classement Kilométrique du Club (2026)")
     
-    if df_participations.empty: st.info("Aucune donnée disponible pour le classement.")
+    if df_participations.empty: 
+        st.info("Aucune donnée disponible pour le classement.")
     else:
         stats_membres = df_participations.groupby("Nom_Membre").agg(Courses_Totales=('Nom_Course', 'count'), Km_Parcourus=('Km_Calc', 'sum')).reset_index()
+        
+        # Ajout du Sexe pour la couleur
+        if not df_membres_clean.empty:
+            stats_membres = stats_membres.merge(df_membres_clean, left_on='Nom_Membre', right_on='Nom_Complet', how='left')
+            stats_membres['Sexe'] = stats_membres['Sexe'].replace({'H': 'Homme', 'F': 'Femme'})
+            stats_membres['Sexe'] = stats_membres['Sexe'].fillna('?')
+            stats_membres = stats_membres.drop(columns=['Nom_Complet'])
+        else:
+            stats_membres['Sexe'] = '?'
+            
         stats_membres = stats_membres.sort_values(by=['Km_Parcourus', 'Nom_Membre'], ascending=[False, True])
         stats_membres['Km_Parcourus'] = stats_membres['Km_Parcourus'].apply(lambda x: f"{x:.1f} km" if x > 0 else "0 km")
         stats_membres.index = range(1, len(stats_membres) + 1)
         stats_membres.index.name = "Position"
-        st.dataframe(stats_membres.rename(columns={'Nom_Membre': 'Membre', 'Courses_Totales': 'Nb Inscriptions', 'Km_Parcourus': 'Distance Totale'}), use_container_width=True)
+        
+        # Renommage et réorganisation des colonnes
+        stats_membres = stats_membres.rename(columns={'Nom_Membre': 'Membre', 'Courses_Totales': 'Nb Inscriptions', 'Km_Parcourus': 'Distance Totale'})
+        cols_order = ['Membre', 'Sexe', 'Nb Inscriptions', 'Distance Totale']
+        stats_membres = stats_membres[cols_order]
+        
+        # Application de la couleur jaune pâle pour les femmes
+        def highlight_femmes(row):
+            if row['Sexe'] == 'Femme':
+                # Jaune pâle avec écriture noire forcée (pour le mode sombre et clair)
+                return ['background-color: #fcfcbf; color: #000000;'] * len(row)
+            return [''] * len(row)
+            
+        st.dataframe(stats_membres.style.apply(highlight_femmes, axis=1), use_container_width=True)
