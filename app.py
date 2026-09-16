@@ -19,7 +19,33 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Nettoyage et conversion des dates
+# Lecture de l'onglet MEMBRES pour la liste déroulante
+try:
+    df_membres = conn.read(worksheet="MEMBRES", ttl=10)
+    df_membres['Nom_Complet'] = df_membres['NOM'].astype(str).str.strip() + " " + df_membres['Prénom'].astype(str).str.strip()
+    liste_membres = sorted(df_membres['Nom_Complet'].unique().tolist())
+except Exception:
+    liste_membres = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if "Nom_Membre" in df_participations.columns else []
+
+# Correction automatique des accents et noms de colonnes dans PARTICIPATIONS
+rename_cols = {}
+for c in df_participations.columns:
+    if "sultat" in str(c).lower():
+        rename_cols[c] = "Resultat"
+    elif str(c).lower() in ["nom_prenom", "prenom_nom"]:
+        rename_cols[c] = "Nom_Membre"
+    elif str(c).lower() == "distance_choisie":
+        rename_cols[c] = "Distance"
+
+if rename_cols:
+    df_participations = df_participations.rename(columns=rename_cols)
+
+# Sécurité : s'assurer que toutes les colonnes nécessaires existent
+for col_req in ["Nom_Membre", "Nom_Course", "Distance", "Statut", "Resultat"]:
+    if col_req not in df_participations.columns:
+        df_participations[col_req] = ""
+
+# Nettoyage et conversion des dates des courses
 df_courses['Date_dt'] = pd.to_datetime(df_courses['Date'], format='%d/%m/%Y', errors='coerce')
 df_courses = df_courses.sort_values(by='Date_dt')
 
@@ -161,7 +187,11 @@ with tab_fiche:
 
         st.subheader("✍️ M'inscrire à cette course")
         with st.form("form_inscription"):
-            nom = st.text_input("Ton Prénom et Nom")
+            if liste_membres:
+                nom = st.selectbox("Sélectionne ton Nom / Prénom", liste_membres)
+            else:
+                nom = st.text_input("Ton Prénom et Nom")
+                
             distance = st.text_input("Distance choisie (ex : 12 km)")
             submit = st.form_submit_button("Je participe !")
             
@@ -339,9 +369,7 @@ with tab_cal:
 with tab_carte:
     st.subheader("🗺️ Localisation des courses")
     
-    # Checkbox pour filtrer les courses avec inscriptions
     filtre_inscrits = st.checkbox("🚩 Afficher uniquement les courses avec des Raids Dingues inscrits", value=False)
-    
     st.caption("Passe la souris ou clique sur un marqueur pour afficher l'événement.")
     
     m = folium.Map(location=[46.67, -1.42], zoom_start=8, tiles="OpenStreetMap")
@@ -351,13 +379,11 @@ with tab_carte:
         inscrits_df = df_participations[df_participations['Nom_Course'] == nom_c]
         nb_inscrits = len(inscrits_df)
         
-        # Filtre dynamique : on passe à la boucle suivante s'il n'y a pas d'inscrit et que la case est cochée
         if filtre_inscrits and nb_inscrits == 0:
             continue
             
         lat, lon = get_coords_fast(row['Lieu'])
         if lat and lon:
-            # Couleur dynamique : Rouge si au moins 1 inscrit, Bleu sinon
             icon_color = "red" if nb_inscrits > 0 else "blue"
             icon_name, icon_prefix = get_icon_details(row['Type de course'])
             
@@ -384,32 +410,35 @@ with tab_carte:
 with tab_membre:
     st.subheader("👤 Suivi individuel des membres")
     
-    membres_inscrits = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if not df_participations.empty else []
+    membres_dispos = liste_membres if liste_membres else sorted(df_participations["Nom_Membre"].dropna().unique().tolist())
     
-    if not membres_inscrits:
-        st.info("Aucune inscription enregistrée pour le moment dans la base de données.")
+    if not membres_dispos:
+        st.info("Aucun membre disponible.")
     else:
-        membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_inscrits)
+        membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_dispos)
         
         if membre_choisi:
-            p_membre = df_participations[df_participations["Nom_Membre"] == membre_choisi]
+            p_membre = df_participations[df_participations["Nom_Membre"].str.strip().str.upper() == membre_choisi.strip().upper()] if not df_participations.empty else pd.DataFrame()
             
-            details_membre = p_membre.merge(
-                df_courses[["Nom de la course", "Date", "Lieu", "Type de course"]],
-                left_on="Nom_Course",
-                right_on="Nom de la course",
-                how="left"
-            )
-            
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                st.metric("Total d'inscriptions 2026", len(details_membre))
-            
-            st.write("### 📜 Participations & Résultats :")
-            
-            df_affichage = details_membre[["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"]]
-            st.dataframe(
-                df_affichage,
-                hide_index=True,
-                use_container_width=True
-            )
+            if p_membre.empty:
+                st.info(f"{membre_choisi} n'a aucune inscription enregistrée pour le moment.")
+            else:
+                details_membre = p_membre.merge(
+                    df_courses[["Nom de la course", "Date", "Lieu", "Type de course"]],
+                    left_on="Nom_Course",
+                    right_on="Nom de la course",
+                    how="left"
+                )
+                
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    st.metric("Total d'inscriptions 2026", len(details_membre))
+                
+                st.write("### 📜 Participations & Résultats :")
+                
+                df_affichage = details_membre[["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"]]
+                st.dataframe(
+                    df_affichage,
+                    hide_index=True,
+                    use_container_width=True
+                )
