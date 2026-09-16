@@ -197,13 +197,15 @@ with tab_fiche:
             
             if submit and nom:
                 nouvelle_inscription = pd.DataFrame([{
-                    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "Nom_Membre": nom,
-                    "Nom_Course": course_choisie,
-                    "Distance": distance,
-                    "Statut": "Inscrit",
-                    "Resultat": ""
-                }])
+    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"),
+    "Nom_Membre": nom,
+    "Nom_Course": course_choisie,
+    "Date": infos['Date'],  # <--- NOUVEAU
+    "Lieu": infos['Lieu'],  # <--- NOUVEAU
+    "Distance": distance,
+    "Statut": "Inscrit",
+    "Resultat": ""
+}])
                 df_updated = pd.concat([df_participations, nouvelle_inscription], ignore_index=True)
                 conn.update(worksheet="PARTICIPATIONS", data=df_updated)
                 st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
