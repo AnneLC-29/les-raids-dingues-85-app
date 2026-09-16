@@ -45,14 +45,21 @@ def get_lat_lon(lieu_str):
         return None, None
     return None, None
 
-# 4. Organisation en onglets
+# 4. Gestion de la sélection automatique via l'URL (si clic depuis le calendrier)
+liste_courses = df_courses["Nom de la course"].dropna().unique()
+course_url = st.query_params.get("course", None)
+
+default_idx = 0
+if course_url and course_url in liste_courses:
+    default_idx = list(liste_courses).index(course_url)
+
+# 5. Organisation en onglets
 tab_fiche, tab_cal, tab_carte = st.tabs(["📋 Fiche & Inscription", "📅 Calendrier Visuel", "🗺️ Carte des courses"])
 
 # --- TAB 1 : FICHE & INSCRIPTION ---
 with tab_fiche:
     st.subheader("📅 Sélectionner une course")
-    liste_courses = df_courses["Nom de la course"].dropna().unique()
-    course_choisie = st.selectbox("Quelle course t'intéresse ?", liste_courses)
+    course_choisie = st.selectbox("Quelle course t'intéresse ?", liste_courses, index=default_idx)
 
     if course_choisie:
         infos = df_courses[df_courses["Nom de la course"] == course_choisie].iloc[0]
@@ -101,7 +108,7 @@ with tab_fiche:
                 st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
                 st.rerun()
 
-# --- TAB 2 : CALENDRIER VISUEL GRILLE ---
+# --- TAB 2 : CALENDRIER VISUEL AVEC HOVER ET CLIC ---
 with tab_cal:
     st.subheader("📅 Vue Calendrier Mensuel 2026")
     
@@ -117,7 +124,6 @@ with tab_cal:
     cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdayscalendar(2026, mois_selectionne)
 
-    # Construction du HTML nettoyé
     html_code = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -125,11 +131,59 @@ with tab_cal:
     body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
     .cal-table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
     .cal-th {{ background-color: #0066cc; color: white; text-align: center; padding: 10px; font-size: 13px; font-weight: bold; border: 1px solid #0055b3; }}
-    .cal-td {{ border: 1px solid #ddd; vertical-align: top; height: 100px; padding: 5px; background-color: #ffffff; }}
+    .cal-td {{ border: 1px solid #ddd; vertical-align: top; height: 110px; padding: 5px; background-color: #ffffff; position: relative; }}
     .cal-empty {{ background-color: #f8f9fa; }}
     .day-num {{ font-weight: bold; font-size: 12px; color: #444; margin-bottom: 4px; }}
-    .event-red {{ background-color: #ffe6e6; color: #cc0000; border-left: 3px solid #cc0000; padding: 3px 5px; margin-bottom: 3px; border-radius: 3px; font-size: 11px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-    .event-normal {{ background-color: #e6f0ff; color: #004085; border-left: 3px solid #0066cc; padding: 3px 5px; margin-bottom: 3px; border-radius: 3px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    
+    /* Style des pilules de course */
+    .event-card {{
+        position: relative;
+        padding: 4px 6px;
+        margin-bottom: 4px;
+        border-radius: 4px;
+        font-size: 11px;
+        cursor: pointer;
+        overflow: visible;
+    }}
+    .event-red {{ background-color: #ffe6e6; color: #cc0000; border-left: 3px solid #cc0000; font-weight: bold; }}
+    .event-blue {{ background-color: #e6f0ff; color: #004085; border-left: 3px solid #0066cc; }}
+    
+    /* Tooltip au survol */
+    .tooltip-content {{
+        visibility: hidden;
+        width: 220px;
+        background-color: #222222;
+        color: #ffffff;
+        text-align: left;
+        border-radius: 6px;
+        padding: 8px 10px;
+        position: absolute;
+        z-index: 99;
+        bottom: 125%;
+        left: 50%;
+        transform: translateX(-50%);
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.3);
+        font-size: 11px;
+        line-height: 1.4;
+        white-space: normal;
+        opacity: 0;
+        transition: opacity 0.2s ease-in-out;
+    }}
+    .tooltip-content::after {{
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: #222222 transparent transparent transparent;
+    }}
+    .event-card:hover .tooltip-content {{
+        visibility: visible;
+        opacity: 1;
+    }}
+    .badge-member {{ background-color: #444; padding: 2px 4px; border-radius: 3px; font-size: 10px; margin-right: 3px; display: inline-block; margin-top: 2px; }}
 </style>
 </head>
 <body>
@@ -159,24 +213,50 @@ with tab_cal:
                 cell_content = f'<div class="day-num">{day}</div>'
                 
                 for _, row in courses_jour.iterrows():
-                    nom_c = html.escape(str(row['Nom de la course']))
-                    inscrits_c = df_participations[df_participations['Nom_Course'] == row['Nom de la course']]
-                    nb_inscrits = len(inscrits_c)
+                    nom_raw = str(row['Nom de la course'])
+                    nom_c = html.escape(nom_raw)
+                    lieu_c = html.escape(str(row['Lieu']))
+                    type_c = html.escape(str(row['Type de course']))
+                    detail_c = html.escape(str(row['Détail']))
+                    
+                    inscrits_df = df_participations[df_participations['Nom_Course'] == nom_raw]
+                    inscrits_liste = inscrits_df['Nom_Membre'].tolist()
+                    nb_inscrits = len(inscrits_liste)
+                    
+                    # Construction du texte de la bulle au survol
+                    inscrits_html = ""
+                    if nb_inscrits > 0:
+                        membres_str = ", ".join([html.escape(m) for m in inscrits_liste])
+                        inscrits_html = f"<br><b>👥 Inscrits ({nb_inscrits}) :</b><br>{membres_str}"
+                    else:
+                        inscrits_html = "<br><i>Aucun membre inscrit</i>"
+                    
+                    tooltip_body = f"""<b>{nom_c}</b><br>📍 {lieu_c}<br>🏃 {type_c} ({detail_c}){inscrits_html}<br><br><span style='color: #4da6ff;'>👉 Clic pour m'inscrire</span>"""
+                    
+                    # URL de redirection au clic
+                    nom_encoded = html.escape(nom_raw).replace("'", "\\'")
+                    click_action = f"window.top.location.href='?course=' + encodeURIComponent('{nom_encoded}');"
                     
                     if nb_inscrits > 0:
-                        cell_content += f'<div class="event-red" title="{nom_c}">🔴 {nom_c} ({nb_inscrits})</div>'
+                        cell_content += f"""
+                        <div class="event-card event-red" onclick="{click_action}">
+                            🔴 {nom_c} ({nb_inscrits})
+                            <div class="tooltip-content">{tooltip_body}</div>
+                        </div>"""
                     else:
-                        cell_content += f'<div class="event-normal" title="{nom_c}">🏃 {nom_c}</div>'
+                        cell_content += f"""
+                        <div class="event-card event-blue" onclick="{click_action}">
+                            🏃 {nom_c}
+                            <div class="tooltip-content">{tooltip_body}</div>
+                        </div>"""
                         
                 html_code += f'<td class="cal-td">{cell_content}</td>'
         html_code += "</tr>"
 
     html_code += "</tbody></table></body></html>"
 
-    # Affichage sécurisé via composant iframe
-    components.html(html_code, height=620, scrolling=True)
-    
-    st.caption("🔴 **Légende :** Fond rouge = au moins 1 Raid Dingue inscrit. Fond bleu = course libre.")
+    components.html(html_code, height=650, scrolling=True)
+    st.caption("💡 **Astuce :** Survole une course pour voir les détails et les membres inscrits. Clique dessus pour basculer directement sur le formulaire d'inscription.")
 
 # --- TAB 3 : CARTE INTERACTIVE ---
 with tab_carte:
