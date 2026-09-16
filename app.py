@@ -108,7 +108,7 @@ with tab_fiche:
                 st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
                 st.rerun()
 
-# --- TAB 2 : CALENDRIER VISUEL AVEC HOVER ET CLIC ---
+# --- TAB 2 : CALENDRIER VISUEL CORRIGÉ ---
 with tab_cal:
     st.subheader("📅 Vue Calendrier Mensuel 2026")
     
@@ -128,14 +128,13 @@ with tab_cal:
 <html>
 <head>
 <style>
-    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+    body {{ margin: 0; padding-top: 40px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
     .cal-table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
     .cal-th {{ background-color: #0066cc; color: white; text-align: center; padding: 10px; font-size: 13px; font-weight: bold; border: 1px solid #0055b3; }}
     .cal-td {{ border: 1px solid #ddd; vertical-align: top; height: 110px; padding: 5px; background-color: #ffffff; position: relative; }}
     .cal-empty {{ background-color: #f8f9fa; }}
     .day-num {{ font-weight: bold; font-size: 12px; color: #444; margin-bottom: 4px; }}
     
-    /* Style des pilules de course */
     .event-card {{
         position: relative;
         padding: 4px 6px;
@@ -143,23 +142,22 @@ with tab_cal:
         border-radius: 4px;
         font-size: 11px;
         cursor: pointer;
-        overflow: visible;
     }}
     .event-red {{ background-color: #ffe6e6; color: #cc0000; border-left: 3px solid #cc0000; font-weight: bold; }}
     .event-blue {{ background-color: #e6f0ff; color: #004085; border-left: 3px solid #0066cc; }}
     
-    /* Tooltip au survol */
+    /* Bulle d'information */
     .tooltip-content {{
         visibility: hidden;
-        width: 220px;
-        background-color: #222222;
+        width: 210px;
+        background-color: #1e293b;
         color: #ffffff;
         text-align: left;
         border-radius: 6px;
         padding: 8px 10px;
         position: absolute;
-        z-index: 99;
-        bottom: 125%;
+        z-index: 999;
+        bottom: 100%;
         left: 50%;
         transform: translateX(-50%);
         box-shadow: 0px 4px 12px rgba(0,0,0,0.3);
@@ -167,8 +165,12 @@ with tab_cal:
         line-height: 1.4;
         white-space: normal;
         opacity: 0;
-        transition: opacity 0.2s ease-in-out;
+        transition: opacity 0.15s ease-in-out;
+        margin-bottom: 6px;
+        pointer-events: auto;
     }}
+    
+    /* Flèche du bas */
     .tooltip-content::after {{
         content: "";
         position: absolute;
@@ -177,13 +179,23 @@ with tab_cal:
         margin-left: -5px;
         border-width: 5px;
         border-style: solid;
-        border-color: #222222 transparent transparent transparent;
+        border-color: #1e293b transparent transparent transparent;
     }}
+    
+    /* Pont invisible pour combler le vide entre la carte et la bulle */
+    .tooltip-content::before {{
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 0;
+        width: 100%;
+        height: 10px;
+    }}
+    
     .event-card:hover .tooltip-content {{
         visibility: visible;
         opacity: 1;
     }}
-    .badge-member {{ background-color: #444; padding: 2px 4px; border-radius: 3px; font-size: 10px; margin-right: 3px; display: inline-block; margin-top: 2px; }}
 </style>
 </head>
 <body>
@@ -223,7 +235,6 @@ with tab_cal:
                     inscrits_liste = inscrits_df['Nom_Membre'].tolist()
                     nb_inscrits = len(inscrits_liste)
                     
-                    # Construction du texte de la bulle au survol
                     inscrits_html = ""
                     if nb_inscrits > 0:
                         membres_str = ", ".join([html.escape(m) for m in inscrits_liste])
@@ -231,9 +242,8 @@ with tab_cal:
                     else:
                         inscrits_html = "<br><i>Aucun membre inscrit</i>"
                     
-                    tooltip_body = f"""<b>{nom_c}</b><br>📍 {lieu_c}<br>🏃 {type_c} ({detail_c}){inscrits_html}<br><br><span style='color: #4da6ff;'>👉 Clic pour m'inscrire</span>"""
+                    tooltip_body = f"""<b>{nom_c}</b><br>📍 {lieu_c}<br>🏃 {type_c} ({detail_c}){inscrits_html}<br><br><span style='color: #38bdf8; font-weight: bold;'>👉 Clic pour m'inscrire</span>"""
                     
-                    # URL de redirection au clic
                     nom_encoded = html.escape(nom_raw).replace("'", "\\'")
                     click_action = f"window.top.location.href='?course=' + encodeURIComponent('{nom_encoded}');"
                     
@@ -255,8 +265,8 @@ with tab_cal:
 
     html_code += "</tbody></table></body></html>"
 
-    components.html(html_code, height=650, scrolling=True)
-    st.caption("💡 **Astuce :** Survole une course pour voir les détails et les membres inscrits. Clique dessus pour basculer directement sur le formulaire d'inscription.")
+    components.html(html_code, height=680, scrolling=True)
+    st.caption("💡 **Astuce :** Survole une course pour voir les détails. Clique directement sur la case ou sur la bulle pour ouvrir le formulaire d'inscription.")
 
 # --- TAB 3 : CARTE INTERACTIVE ---
 with tab_carte:
