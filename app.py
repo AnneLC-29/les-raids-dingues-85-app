@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 # 1. Configuration de la page
 st.set_page_config(page_title="Raids Dingues 85", page_icon="🏃‍♂️", layout="wide")
 st.title("🏃‍♂️ Raids Dingues 85")
-st.write("Saison 2026 — Calendrier, Carte & Inscriptions")
+st.write("Saison 2026 — Calendrier, Carte & Suivi des membres")
 
 # 2. Connexion au Google Sheet
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -28,7 +28,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# 3. Base de coordonnées instantanée (GPS Villes)
+# 3. Base de coordonnées GPS
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936),
     "MAILLEZAIS": (46.3725, -0.7383),
@@ -84,7 +84,6 @@ COORDS_VILLES = {
     "LES SABLES D'OLONNE": (46.4972, -1.7833),
     "PARTHENAY": (46.6486, -0.2483),
     "LA ROCHE SUR YON": (46.6705, -1.4265),
-    "BRESSUIRE": (46.8406, -0.4939),
     "CHATELAILLON-PLAGE": (46.0728, -1.0881),
     "CHATELAILLON": (46.0728, -1.0881),
     "LES HERBIERS": (46.8681, -1.0094),
@@ -101,7 +100,16 @@ def get_coords_fast(lieu_str):
     if not lieu_str or pd.isna(lieu_str):
         return None, None
     ville = str(lieu_str).split('(')[0].strip().upper()
-    return COORDS_VILLES.get(ville, (46.67, -1.42))  # Coordonnées par défaut si ville inconnue
+    return COORDS_VILLES.get(ville, (46.67, -1.42))
+
+def get_icon_details(type_course):
+    t = str(type_course).upper()
+    if "ORIENTATION" in t or "CO " in t or "CVO" in t or "RAID" in t:
+        return "compass", "fa"
+    elif "TRAIL" in t or "NATURE" in t or "BACKYARD" in t:
+        return "tree", "fa"
+    else:
+        return "road", "fa"
 
 # 4. Gestion de la sélection automatique via l'URL
 liste_courses = df_courses["Nom de la course"].dropna().unique()
@@ -112,7 +120,12 @@ if course_url and course_url in liste_courses:
     default_idx = list(liste_courses).index(course_url)
 
 # 5. Organisation en onglets
-tab_fiche, tab_cal, tab_carte = st.tabs(["📋 Fiche & Inscription", "📅 Calendrier Visuel", "🗺️ Carte des courses"])
+tab_fiche, tab_cal, tab_carte, tab_membre = st.tabs([
+    "📋 Fiche & Inscription", 
+    "📅 Calendrier Visuel", 
+    "🗺️ Carte des courses",
+    "👤 Fiche Membre"
+])
 
 # --- TAB 1 : FICHE & INSCRIPTION ---
 with tab_fiche:
@@ -186,7 +199,7 @@ with tab_cal:
 <html>
 <head>
 <style>
-    body {{ margin: 0; padding-top: 40px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+    body {{ margin: 0; padding-top: 35px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
     .cal-table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
     .cal-th {{ background-color: #0066cc; color: white; text-align: center; padding: 10px; font-size: 13px; font-weight: bold; border: 1px solid #0055b3; }}
     .cal-td {{ border: 1px solid #ddd; vertical-align: top; height: 110px; padding: 5px; background-color: #ffffff; position: relative; }}
@@ -224,7 +237,7 @@ with tab_cal:
         opacity: 0;
         transition: opacity 0.15s ease-in-out;
         margin-bottom: 6px;
-        pointer-events: auto;
+        pointer-events: none;
     }}
     .tooltip-content::after {{
         content: "";
@@ -236,19 +249,22 @@ with tab_cal:
         border-style: solid;
         border-color: #1e293b transparent transparent transparent;
     }}
-    .tooltip-content::before {{
-        content: "";
-        position: absolute;
-        top: 100%;
-        left: 0;
-        width: 100%;
-        height: 10px;
-    }}
     .event-card:hover .tooltip-content {{
         visibility: visible;
         opacity: 1;
     }}
 </style>
+<script>
+    function navToCourse(courseName) {{
+        try {{
+            var parentUrl = new URL(window.parent.location.href);
+            parentUrl.searchParams.set('course', courseName);
+            window.parent.location.href = parentUrl.toString();
+        }} catch(e) {{
+            window.top.location.search = '?course=' + encodeURIComponent(courseName);
+        }}
+    }}
+</script>
 </head>
 <body>
 <table class="cal-table">
@@ -296,8 +312,8 @@ with tab_cal:
                     
                     tooltip_body = f"""<b>{nom_c}</b><br>📍 {lieu_c}<br>🏃 {type_c} ({detail_c}){inscrits_html}<br><br><span style='color: #38bdf8; font-weight: bold;'>👉 Clic pour m'inscrire</span>"""
                     
-                    nom_encoded = html.escape(nom_raw).replace("'", "\\'")
-                    click_action = f"window.top.location.href='?course=' + encodeURIComponent('{nom_encoded}');"
+                    nom_escaped_js = nom_raw.replace("'", "\\'").replace('"', '\\"')
+                    click_action = f"navToCourse('{nom_escaped_js}')"
                     
                     if nb_inscrits > 0:
                         cell_content += f"""
@@ -319,7 +335,7 @@ with tab_cal:
 
     components.html(html_code, height=680, scrolling=True)
 
-# --- TAB 3 : CARTE INTERACTIVE RAPIDE ---
+# --- TAB 3 : CARTE INTERACTIVE ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses")
     st.caption("Passe la souris ou clique sur un marqueur pour afficher l'événement.")
@@ -329,20 +345,66 @@ with tab_carte:
     for _, row in df_courses.iterrows():
         lat, lon = get_coords_fast(row['Lieu'])
         if lat and lon:
+            nom_c = str(row['Nom de la course'])
+            inscrits_df = df_participations[df_participations['Nom_Course'] == nom_c]
+            nb_inscrits = len(inscrits_df)
+            
+            # Couleur dynamique : Rouge si au moins 1 inscrit, Bleu sinon
+            icon_color = "red" if nb_inscrits > 0 else "blue"
+            icon_name, icon_prefix = get_icon_details(row['Type de course'])
+            
             popup_html = f"""
             <div style='font-family: sans-serif; width: 180px;'>
-                <b>{html.escape(str(row['Nom de la course']))}</b><br>
+                <b>{html.escape(nom_c)}</b><br>
                 📅 {row['Date']}<br>
                 📍 {row['Lieu']}<br>
                 🏃 {row['Type de course']}<br>
-                <small>{row['Détail']}</small>
+                <small>{row['Détail']}</small><br>
+                <b>👥 Inscrits : {nb_inscrits}</b>
             </div>
             """
             folium.Marker(
                 location=[lat, lon],
                 popup=folium.Popup(popup_html, max_width=220),
-                tooltip=f"{row['Nom de la course']} ({row['Date']})",
-                icon=folium.Icon(color="red", icon="flag")
+                tooltip=f"{nom_c} ({row['Date']}) - {nb_inscrits} inscrit(s)",
+                icon=folium.Icon(color=icon_color, icon=icon_name, prefix=icon_prefix)
             ).add_to(m)
             
     st_folium(m, width=1100, height=500)
+
+# --- TAB 4 : FICHE MEMBRE ET SUIVI ---
+with tab_membre:
+    st.subheader("👤 Suivi individuel des membres")
+    
+    # Liste de tous les membres uniques s'étant déjà inscrits
+    membres_inscrits = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if not df_participations.empty else []
+    
+    if not membres_inscrits:
+        st.info("Aucune inscription enregistrée pour le moment dans la base de données.")
+    else:
+        membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_inscrits)
+        
+        if membre_choisi:
+            p_membre = df_participations[df_participations["Nom_Membre"] == membre_choisi]
+            
+            # Joindre les infos du calendrier des courses
+            details_membre = p_membre.merge(
+                df_courses[["Nom de la course", "Date", "Lieu", "Type de course"]],
+                left_on="Nom_Course",
+                right_on="Nom de la course",
+                how="left"
+            )
+            
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                st.metric("Total d'inscriptions 2026", len(details_membre))
+            
+            st.write("### 📜 Participations & Résultats :")
+            
+            # Nettoyage et affichage du tableau récapitulatif
+            df_affichage = details_membre[["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"]]
+            st.dataframe(
+                df_affichage,
+                hide_index=True,
+                use_container_width=True
+            )
