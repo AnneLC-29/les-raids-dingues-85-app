@@ -158,8 +158,8 @@ with tab_fiche:
             if submit and nom:
                 nouvelle_inscription = pd.DataFrame([{
                     "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "Date": infos['Date'],            # Ajout auto de la Date
-                    "Lieu": infos['Lieu'],            # Ajout auto du Lieu
+                    "Date": infos['Date'],            
+                    "Lieu": infos['Lieu'],            
                     "Nom_Membre": nom,
                     "Nom_Course": course_choisie,
                     "Distance": distance,
