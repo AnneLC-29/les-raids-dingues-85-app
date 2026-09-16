@@ -9,8 +9,11 @@ from streamlit_folium import st_folium
 import streamlit.components.v1 as components
 import re
 import unicodedata
+from geopy.geocoders import Nominatim
 
-# Dictionnaire des départements français
+# Initialisation du géolocaliseur pour les villes absentes du dictionnaire
+geolocator = Nominatim(user_agent="raids_dingues_app_85")
+
 DEPTS_NAMES = {
     "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence", "05": "Hautes-Alpes",
     "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes", "09": "Ariège", "10": "Aube",
@@ -95,6 +98,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
+# Base de coordonnées GPS enrichie
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -118,14 +122,31 @@ COORDS_VILLES = {
     "LA ROCHE SUR YON": (46.6705, -1.4265), "CHATELAILLON-PLAGE": (46.0728, -1.0881), "CHATELAILLON": (46.0728, -1.0881),
     "LES HERBIERS": (46.8681, -1.0094), "NANTES": (47.2181, -1.5536), "CHANTONNAY": (46.6881, -1.0506),
     "MONTAIGU": (46.9739, -1.3125), "AIRVAULT": (46.8267, -0.1389), "TALMONT ST HILAIRE": (46.4683, -1.6186),
-    "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461)
+    "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461), "CROZON": (48.2464, -4.4894),
+    "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114)
 }
 
-def get_coords_fast(lieu_str):
+# Géolocalisation intelligente : dictionnaire d'abord, puis recherche dynamique en cache
+@st.cache_data
+def get_coords_smart(lieu_str):
     if not lieu_str or pd.isna(lieu_str):
         return None, None
+    
     ville = str(lieu_str).split('(')[0].strip().upper()
-    return COORDS_VILLES.get(ville, (46.67, -1.42))
+    if ville in COORDS_VILLES:
+        return COORDS_VILLES[ville]
+    
+    try:
+        match = re.search(r"\((.*?)\)", str(lieu_str))
+        dept = match.group(1) if match else ""
+        query = f"{ville} {dept}, France" if dept else f"{ville}, France"
+        loc = geolocator.geocode(query, timeout=4)
+        if loc:
+            return loc.latitude, loc.longitude
+    except Exception:
+        pass
+        
+    return None, None
 
 def categorize_course(type_course):
     t = str(type_course).upper()
@@ -163,19 +184,17 @@ default_idx = list(liste_courses).index(course_url) if course_url and course_url
 today = datetime.now()
 courses_avec_inscrits = df_participations['Nom_Course'].dropna().unique()
 
-# Courses uniquement <= aujourd'hui ET avec au moins 1 inscrit
 df_courses_a_date = df_courses[
     (df_courses['Nom de la course'].isin(courses_avec_inscrits)) &
     (df_courses['Date_dt'].notna()) &
     (df_courses['Date_dt'] <= today)
 ].copy()
 
-# Participations associées à ces courses filtrées
 df_participations_a_date = df_participations[
     df_participations['Nom_Course'].isin(df_courses_a_date['Nom de la course'])
 ].copy()
 
-# --- BANDEAU D'INDICATEURS CLÉS (À DATE ET AVEC INSCRITS) ---
+# --- BANDEAU D'INDICATEURS CLÉS ---
 kpi_events = df_courses_a_date["Nom de la course"].nunique()
 kpi_inscriptions = len(df_participations_a_date)
 kpi_depts = df_courses_a_date["Dept_Code"].dropna().nunique()
@@ -343,7 +362,7 @@ with tab_carte:
             
             if filtre_inscrits and nb_inscrits == 0: continue
                 
-            lat, lon = get_coords_fast(row['Lieu'])
+            lat, lon = get_coords_smart(row['Lieu'])
             if lat and lon:
                 icon_color = "red" if nb_inscrits > 0 else "blue"
                 icon_name, icon_prefix = get_icon_details(row['Catégorie'])
@@ -440,7 +459,7 @@ with tab_stats_km:
             hide_index=True
         )
 
-# --- TAB 6 : STATISTIQUES GLOBALES (RÉDUIT À DATE ET AVEC INSCRITS) ---
+# --- TAB 6 : STATISTIQUES GLOBALES ---
 with tab_stats_glob:
     st.subheader("📊 Statistiques Récapitulatives (Événements courus à date)")
     
@@ -449,9 +468,7 @@ with tab_stats_glob:
     else:
         col_s_left, col_s_right = st.columns([1, 1])
         
-        # --- COLONNE GAUCHE ---
         with col_s_left:
-            # 1. Nombre de manifestations par mois
             st.write("#### 📅 Nombre de manifestations par mois (à date)")
             
             counts_by_month = []
@@ -473,7 +490,6 @@ with tab_stats_glob:
             st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
             st.write("")
             
-            # 2. Lieu des courses (par département)
             st.write("#### 🗺️ Lieu des courses (Départements à date)")
             
             df_depts = df_courses_a_date['Dept_Code'].dropna().value_counts().reset_index()
@@ -486,9 +502,7 @@ with tab_stats_glob:
             df_depts = df_depts.sort_values(by='Code_Dept')[['Lieu des courses', 'Nombre de courses']]
             st.dataframe(df_depts, hide_index=True, use_container_width=True)
 
-        # --- COLONNE DROITE ---
         with col_s_right:
-            # 3. Nombre de participants par manifestation
             st.write("#### 👥 Nombre de participants par manifestation (à date)")
             
             total_participants = len(df_participations_a_date)
