@@ -7,7 +7,6 @@ import html
 import folium
 from streamlit_folium import st_folium
 import streamlit.components.v1 as components
-from geopy.geocoders import Nominatim
 
 # 1. Configuration de la page
 st.set_page_config(page_title="Raids Dingues 85", page_icon="🏃‍♂️", layout="wide")
@@ -29,23 +28,82 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# 3. Géolocalisation pour la carte
-geolocator = Nominatim(user_agent="raids_dingues_app_85")
+# 3. Base de coordonnées instantanée (GPS Villes)
+COORDS_VILLES = {
+    "FOURAS": (45.9875, -1.0936),
+    "MAILLEZAIS": (46.3725, -0.7383),
+    "LA ROCHELLE": (46.1603, -1.1511),
+    "LES MATHES": (45.7183, -1.1472),
+    "BRESSUIRE": (46.8406, -0.4939),
+    "POUFFONDS": (46.1736, -0.1558),
+    "ST LAURENT SUR SEVRE": (46.9583, -0.8931),
+    "PARIS": (48.8566, 2.3522),
+    "LUCS SUR BOULOGNE": (46.8439, -1.4939),
+    "LES LUCS SUR BOULOGNE": (46.8439, -1.4939),
+    "NUEIL LES AUBIERS": (46.9372, -0.5897),
+    "LA CHAPELLE DES POTS": (45.7608, -0.5408),
+    "AIGONNAY": (46.3411, -0.2447),
+    "FONTENAY LE COMTE": (46.4667, -0.8000),
+    "SAIVRES": (46.4250, -0.2319),
+    "SAINTE SOULLE": (46.1856, -1.0117),
+    "CUGAND": (47.0628, -1.2542),
+    "ST MAIXENT L'ECOLE": (46.4117, -0.2078),
+    "CHAPELLE ST LAURENT": (46.8147, -0.4786),
+    "ARCHINGEAY": (45.9328, -0.6558),
+    "MERVENT": (46.5228, -0.7553),
+    "VALLET": (47.1611, -1.2658),
+    "AIGONDIGNE": (46.3486, -0.2883),
+    "BOURNEZEAU": (46.6358, -1.1689),
+    "VINCENNES": (48.8475, 2.4392),
+    "ISSY LES MOULINEAUX": (48.8239, 2.2703),
+    "CHAMPDENIERS": (46.4842, -0.4028),
+    "CHAUCHE": (46.8308, -1.2694),
+    "CHARENTON LE PONT": (48.8222, 2.4144),
+    "AIGREFEUILLE D'AUNIS": (46.1181, -0.9328),
+    "BOISSIERE DE MONTAIGU": (46.9806, -1.1917),
+    "VOLVIC": (45.8711, 3.0372),
+    "ST JEAN DE MONTS": (46.7922, -2.0603),
+    "MORTAGNE / SEVRE": (46.9931, -0.9542),
+    "MORTAGNE SUR SEVRE": (46.9931, -0.9542),
+    "ROCHEFORT": (45.9428, -0.9631),
+    "ST MARTIN DES NOYERS": (46.7239, -1.1783),
+    "LONGEVILLE SUR MER": (46.4239, -1.4889),
+    "LA GAUBRETIERE": (46.9458, -1.0664),
+    "BEAULIEU SOUS LA ROCHE": (46.6764, -1.6094),
+    "SAUMUR": (47.2603, -0.0769),
+    "L'OIE": (46.7981, -1.1325),
+    "ST HILAIRE DE RIEZ": (46.7214, -1.9453),
+    "POUZAUGES": (46.7833, -0.8333),
+    "VENAUSAULT": (46.6858, -1.5125),
+    "NIORT": (46.3237, -0.4648),
+    "LUCON": (46.4550, -1.1664),
+    "LA TRANCHE / MER": (46.3439, -1.4389),
+    "LA TRANCHE SUR MER": (46.3439, -1.4389),
+    "NOIRMOUTIER": (47.0003, -2.2417),
+    "LES SABLES D'OLONNES": (46.4972, -1.7833),
+    "LES SABLES D'OLONNE": (46.4972, -1.7833),
+    "PARTHENAY": (46.6486, -0.2483),
+    "LA ROCHE SUR YON": (46.6705, -1.4265),
+    "BRESSUIRE": (46.8406, -0.4939),
+    "CHATELAILLON-PLAGE": (46.0728, -1.0881),
+    "CHATELAILLON": (46.0728, -1.0881),
+    "LES HERBIERS": (46.8681, -1.0094),
+    "NANTES": (47.2181, -1.5536),
+    "CHANTONNAY": (46.6881, -1.0506),
+    "MONTAIGU": (46.9739, -1.3125),
+    "AIRVAULT": (46.8267, -0.1389),
+    "TALMONT ST HILAIRE": (46.4683, -1.6186),
+    "SAINTE NEOMAYE": (46.3719, -0.2589),
+    "MAGNÉ": (46.3153, -0.5461)
+}
 
-@st.cache_data
-def get_lat_lon(lieu_str):
+def get_coords_fast(lieu_str):
     if not lieu_str or pd.isna(lieu_str):
         return None, None
-    try:
-        ville = str(lieu_str).split('(')[0].strip()
-        loc = geolocator.geocode(f"{ville}, France", timeout=5)
-        if loc:
-            return loc.latitude, loc.longitude
-    except Exception:
-        return None, None
-    return None, None
+    ville = str(lieu_str).split('(')[0].strip().upper()
+    return COORDS_VILLES.get(ville, (46.67, -1.42))  # Coordonnées par défaut si ville inconnue
 
-# 4. Gestion de la sélection automatique via l'URL (si clic depuis le calendrier)
+# 4. Gestion de la sélection automatique via l'URL
 liste_courses = df_courses["Nom de la course"].dropna().unique()
 course_url = st.query_params.get("course", None)
 
@@ -108,7 +166,7 @@ with tab_fiche:
                 st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
                 st.rerun()
 
-# --- TAB 2 : CALENDRIER VISUEL CORRIGÉ ---
+# --- TAB 2 : CALENDRIER VISUEL ---
 with tab_cal:
     st.subheader("📅 Vue Calendrier Mensuel 2026")
     
@@ -146,7 +204,6 @@ with tab_cal:
     .event-red {{ background-color: #ffe6e6; color: #cc0000; border-left: 3px solid #cc0000; font-weight: bold; }}
     .event-blue {{ background-color: #e6f0ff; color: #004085; border-left: 3px solid #0066cc; }}
     
-    /* Bulle d'information */
     .tooltip-content {{
         visibility: hidden;
         width: 210px;
@@ -169,8 +226,6 @@ with tab_cal:
         margin-bottom: 6px;
         pointer-events: auto;
     }}
-    
-    /* Flèche du bas */
     .tooltip-content::after {{
         content: "";
         position: absolute;
@@ -181,8 +236,6 @@ with tab_cal:
         border-style: solid;
         border-color: #1e293b transparent transparent transparent;
     }}
-    
-    /* Pont invisible pour combler le vide entre la carte et la bulle */
     .tooltip-content::before {{
         content: "";
         position: absolute;
@@ -191,7 +244,6 @@ with tab_cal:
         width: 100%;
         height: 10px;
     }}
-    
     .event-card:hover .tooltip-content {{
         visibility: visible;
         opacity: 1;
@@ -266,18 +318,16 @@ with tab_cal:
     html_code += "</tbody></table></body></html>"
 
     components.html(html_code, height=680, scrolling=True)
-    st.caption("💡 **Astuce :** Survole une course pour voir les détails. Clique directement sur la case ou sur la bulle pour ouvrir le formulaire d'inscription.")
 
-# --- TAB 3 : CARTE INTERACTIVE ---
+# --- TAB 3 : CARTE INTERACTIVE RAPIDE ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses")
-    st.caption("Passe la souris ou clique sur un marqueur pour afficher le nom de l'événement.")
+    st.caption("Passe la souris ou clique sur un marqueur pour afficher l'événement.")
     
     m = folium.Map(location=[46.67, -1.42], zoom_start=8, tiles="OpenStreetMap")
     
     for _, row in df_courses.iterrows():
-        lieu = row['Lieu']
-        lat, lon = get_lat_lon(lieu)
+        lat, lon = get_coords_fast(row['Lieu'])
         if lat and lon:
             popup_html = f"""
             <div style='font-family: sans-serif; width: 180px;'>
