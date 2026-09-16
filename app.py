@@ -338,17 +338,25 @@ with tab_cal:
 # --- TAB 3 : CARTE INTERACTIVE ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses")
+    
+    # Checkbox pour filtrer les courses avec inscriptions
+    filtre_inscrits = st.checkbox("🚩 Afficher uniquement les courses avec des Raids Dingues inscrits", value=False)
+    
     st.caption("Passe la souris ou clique sur un marqueur pour afficher l'événement.")
     
     m = folium.Map(location=[46.67, -1.42], zoom_start=8, tiles="OpenStreetMap")
     
     for _, row in df_courses.iterrows():
+        nom_c = str(row['Nom de la course'])
+        inscrits_df = df_participations[df_participations['Nom_Course'] == nom_c]
+        nb_inscrits = len(inscrits_df)
+        
+        # Filtre dynamique : on passe à la boucle suivante s'il n'y a pas d'inscrit et que la case est cochée
+        if filtre_inscrits and nb_inscrits == 0:
+            continue
+            
         lat, lon = get_coords_fast(row['Lieu'])
         if lat and lon:
-            nom_c = str(row['Nom de la course'])
-            inscrits_df = df_participations[df_participations['Nom_Course'] == nom_c]
-            nb_inscrits = len(inscrits_df)
-            
             # Couleur dynamique : Rouge si au moins 1 inscrit, Bleu sinon
             icon_color = "red" if nb_inscrits > 0 else "blue"
             icon_name, icon_prefix = get_icon_details(row['Type de course'])
@@ -376,7 +384,6 @@ with tab_carte:
 with tab_membre:
     st.subheader("👤 Suivi individuel des membres")
     
-    # Liste de tous les membres uniques s'étant déjà inscrits
     membres_inscrits = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if not df_participations.empty else []
     
     if not membres_inscrits:
@@ -387,7 +394,6 @@ with tab_membre:
         if membre_choisi:
             p_membre = df_participations[df_participations["Nom_Membre"] == membre_choisi]
             
-            # Joindre les infos du calendrier des courses
             details_membre = p_membre.merge(
                 df_courses[["Nom de la course", "Date", "Lieu", "Type de course"]],
                 left_on="Nom_Course",
@@ -401,7 +407,6 @@ with tab_membre:
             
             st.write("### 📜 Participations & Résultats :")
             
-            # Nettoyage et affichage du tableau récapitulatif
             df_affichage = details_membre[["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"]]
             st.dataframe(
                 df_affichage,
