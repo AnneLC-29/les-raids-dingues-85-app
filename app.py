@@ -3,8 +3,10 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 import calendar
+import html
 import folium
 from streamlit_folium import st_folium
+import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
 
 # 1. Configuration de la page
@@ -18,17 +20,16 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Nettoyage et conversion des dates pour le tri et le calendrier
+# Nettoyage et conversion des dates
 df_courses['Date_dt'] = pd.to_datetime(df_courses['Date'], format='%d/%m/%Y', errors='coerce')
 df_courses = df_courses.sort_values(by='Date_dt')
 
-# Dictionnaire des mois en français
 MOIS_FR = {
     1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin",
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# 3. Géolocalisation mise en cache pour la carte
+# 3. Géolocalisation pour la carte
 geolocator = Nominatim(user_agent="raids_dingues_app_85")
 
 @st.cache_data
@@ -66,7 +67,7 @@ with tab_fiche:
                 
         with col2:
             if 'Lien_Image' in infos and pd.notna(infos['Lien_Image']):
-                st.image(infos['Lien_Image'], use_container_width=True)
+                st.image(infos['Lien_Image'], width=300)
 
         st.divider()
 
@@ -76,7 +77,7 @@ with tab_fiche:
         if inscrits.empty:
             st.info("Aucun Raid Dingue n'est encore inscrit. Sois le premier !")
         else:
-            st.dataframe(inscrits[["Nom_Membre", "Distance", "Statut"]], hide_index=True, use_container_width=True)
+            st.dataframe(inscrits[["Nom_Membre", "Distance", "Statut"]], hide_index=True)
             
         st.divider()
 
@@ -113,37 +114,38 @@ with tab_cal:
             format_func=lambda m: f"{MOIS_FR[m]} 2026"
         )
 
-    # Matrice des jours du mois
-    cal = calendar.Calendar(firstweekday=0)  # Lundi = 0
+    cal = calendar.Calendar(firstweekday=0)
     month_days = cal.monthdayscalendar(2026, mois_selectionne)
 
-    # Style HTML/CSS du calendrier
-    html_code = """
-    <style>
-        .cal-container { overflow-x: auto; width: 100%; }
-        .cal-table { width: 100%; min-width: 700px; border-collapse: collapse; font-family: sans-serif; table-layout: fixed; }
-        .cal-th { background-color: #0066cc; color: white; text-align: center; padding: 10px; font-weight: bold; border: 1px solid #0055b3; }
-        .cal-td { border: 1px solid #ddd; vertical-align: top; height: 110px; padding: 6px; background-color: #ffffff; }
-        .cal-empty { background-color: #f8f9fa; border: 1px solid #eee; }
-        .day-num { font-weight: bold; font-size: 13px; color: #333; margin-bottom: 6px; }
-        .event-red { background-color: #ffe6e6; color: #cc0000; border-left: 4px solid #cc0000; padding: 4px 6px; margin-bottom: 4px; border-radius: 4px; font-size: 11px; font-weight: bold; word-wrap: break-word; }
-        .event-normal { background-color: #e6f0ff; color: #004085; border-left: 4px solid #0066cc; padding: 4px 6px; margin-bottom: 4px; border-radius: 4px; font-size: 11px; word-wrap: break-word; }
-    </style>
-    <div class="cal-container">
-    <table class="cal-table">
-        <thead>
-            <tr>
-                <th class="cal-th">LUNDI</th>
-                <th class="cal-th">MARDI</th>
-                <th class="cal-th">MERCREDI</th>
-                <th class="cal-th">JEUDI</th>
-                <th class="cal-th">VENDREDI</th>
-                <th class="cal-th">SAMEDI</th>
-                <th class="cal-th">DIMANCHE</th>
-            </tr>
-        </thead>
-        <tbody>
-    """
+    # Construction du HTML nettoyé
+    html_code = f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+    body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+    .cal-table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+    .cal-th {{ background-color: #0066cc; color: white; text-align: center; padding: 10px; font-size: 13px; font-weight: bold; border: 1px solid #0055b3; }}
+    .cal-td {{ border: 1px solid #ddd; vertical-align: top; height: 100px; padding: 5px; background-color: #ffffff; }}
+    .cal-empty {{ background-color: #f8f9fa; }}
+    .day-num {{ font-weight: bold; font-size: 12px; color: #444; margin-bottom: 4px; }}
+    .event-red {{ background-color: #ffe6e6; color: #cc0000; border-left: 3px solid #cc0000; padding: 3px 5px; margin-bottom: 3px; border-radius: 3px; font-size: 11px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    .event-normal {{ background-color: #e6f0ff; color: #004085; border-left: 3px solid #0066cc; padding: 3px 5px; margin-bottom: 3px; border-radius: 3px; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+</style>
+</head>
+<body>
+<table class="cal-table">
+    <thead>
+        <tr>
+            <th class="cal-th">LUNDI</th>
+            <th class="cal-th">MARDI</th>
+            <th class="cal-th">MERCREDI</th>
+            <th class="cal-th">JEUDI</th>
+            <th class="cal-th">VENDREDI</th>
+            <th class="cal-th">SAMEDI</th>
+            <th class="cal-th">DIMANCHE</th>
+        </tr>
+    </thead>
+    <tbody>"""
 
     for week in month_days:
         html_code += "<tr>"
@@ -157,24 +159,24 @@ with tab_cal:
                 cell_content = f'<div class="day-num">{day}</div>'
                 
                 for _, row in courses_jour.iterrows():
-                    nom_c = row['Nom de la course']
-                    # Nombre d'inscrits dans l'onglet PARTICIPATIONS
-                    inscrits_c = df_participations[df_participations['Nom_Course'] == nom_c]
+                    nom_c = html.escape(str(row['Nom de la course']))
+                    inscrits_c = df_participations[df_participations['Nom_Course'] == row['Nom de la course']]
                     nb_inscrits = len(inscrits_c)
                     
                     if nb_inscrits > 0:
-                        cell_content += f'<div class="event-red">🔴 {nom_c} ({nb_inscrits})</div>'
+                        cell_content += f'<div class="event-red" title="{nom_c}">🔴 {nom_c} ({nb_inscrits})</div>'
                     else:
-                        cell_content += f'<div class="event-normal">🏃 {nom_c}</div>'
+                        cell_content += f'<div class="event-normal" title="{nom_c}">🏃 {nom_c}</div>'
                         
                 html_code += f'<td class="cal-td">{cell_content}</td>'
         html_code += "</tr>"
 
-    html_code += "</tbody></table></div>"
+    html_code += "</tbody></table></body></html>"
 
-    st.markdown(html_code, unsafe_allow_html=True)
-    st.write("")
-    st.caption("🔴 **Légende :** Fond rouge = au moins 1 Raid Dingue inscrit (nombre d'inscrits entre parenthèses). Fond bleu = course libre.")
+    # Affichage sécurisé via composant iframe
+    components.html(html_code, height=620, scrolling=True)
+    
+    st.caption("🔴 **Légende :** Fond rouge = au moins 1 Raid Dingue inscrit. Fond bleu = course libre.")
 
 # --- TAB 3 : CARTE INTERACTIVE ---
 with tab_carte:
@@ -189,7 +191,7 @@ with tab_carte:
         if lat and lon:
             popup_html = f"""
             <div style='font-family: sans-serif; width: 180px;'>
-                <b>{row['Nom de la course']}</b><br>
+                <b>{html.escape(str(row['Nom de la course']))}</b><br>
                 📅 {row['Date']}<br>
                 📍 {row['Lieu']}<br>
                 🏃 {row['Type de course']}<br>
@@ -203,4 +205,4 @@ with tab_carte:
                 icon=folium.Icon(color="red", icon="flag")
             ).add_to(m)
             
-    st_folium(m, width="100%", height=500)
+    st_folium(m, width=1100, height=500)
