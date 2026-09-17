@@ -65,7 +65,7 @@ def parse_course_date(d_str):
     # 1. Format classique JJ/MM/AAAA ou JJ/MM/AA (ex: 12/12/2026 ou 12 & 13/12/2026)
     match_chiffres = re.findall(r'(\d{1,2})/(\d{1,2})/(\d{2,4})', d_str)
     if match_chiffres:
-        day, month, year = match_chiffres[-1] # Prend la date de fin en cas d'intervalle
+        day, month, year = match_chiffres[-1]
         year_int = int(year) + 2000 if len(year) == 2 else int(year)
         try:
             return pd.Timestamp(year=year_int, month=int(month), day=int(day))
@@ -88,13 +88,47 @@ def parse_course_date(d_str):
 
 # 1. Configuration de la page
 st.set_page_config(page_title="Raids Dingues 85", page_icon="🏃‍♂️", layout="wide")
+
+# ================= MENU LATÉRAL (NOUVEAUTÉ) =================
+st.sidebar.header("⚙️ Paramètres")
+annees_selectionnees = st.sidebar.multiselect(
+    "Saisons à afficher :", 
+    options=[2026, 2027], 
+    default=[2026] # Par défaut, on n'affiche que 2026
+)
+
+if not annees_selectionnees:
+    st.warning("⚠️ Coche au moins une année dans le menu de gauche.")
+    st.stop()
+
+titre_annees = " & ".join(map(str, sorted(annees_selectionnees)))
 st.title("🏃‍♂️ Raids Dingues 85")
-st.write("Saison 2026 — Calendrier, Carte & Suivi des membres")
+st.write(f"Saison {titre_annees} — Calendrier, Carte & Suivi des membres")
 
 # 2. Connexion au Google Sheet
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
+# ================= FUSION BDD 2026 ET 2027 (NOUVEAUTÉ) =================
+try:
+    df_2026 = conn.read(worksheet="BDD 2026", header=5, ttl=10)
+except Exception:
+    df_2026 = pd.DataFrame()
+
+try:
+    df_2027 = conn.read(worksheet="BDD 2027", header=0, ttl=10)
+except Exception:
+    df_2027 = pd.DataFrame()
+
+# Fusion sécurisée
+df_courses = pd.concat([df_2026, df_2027], ignore_index=True)
+if "Nom de la course" in df_courses.columns:
+    df_courses = df_courses.dropna(subset=["Nom de la course"])
+else:
+    st.error("Impossible de lire les onglets BDD.")
+    st.stop()
+
+# =======================================================================
+
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
 # Lecture de l'onglet MEMBRES
@@ -123,10 +157,19 @@ for c in df_participations.columns:
 if rename_cols:
     df_participations = df_participations.rename(columns=rename_cols)
 
-# Conversion intelligente des dates et extraction des départements
+# Traitement des dates et extraction de l'année (NOUVEAUTÉ)
 df_courses['Date_dt'] = df_courses['Date'].apply(parse_course_date)
-df_courses = df_courses.sort_values(by='Date_dt')
+df_courses['Annee'] = df_courses['Date_dt'].dt.year
+
+# On filtre immédiatement les courses selon les années cochées dans le menu
+df_courses = df_courses[df_courses['Annee'].isin(annees_selectionnees)].sort_values(by='Date_dt')
 df_courses['Dept_Code'] = df_courses['Lieu'].apply(extract_dept)
+
+# Création du Label_Unique pour différencier les homonymes 2026/2027
+def creer_label(row):
+    annee = str(int(row['Annee'])) if pd.notna(row['Annee']) else "Inconnue"
+    return f"{row['Nom de la course']} ({annee})"
+df_courses['Label_Unique'] = df_courses.apply(creer_label, axis=1)
 
 MOIS_FR = {
     1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin",
@@ -136,12 +179,12 @@ MOIS_FR = {
 # Base de coordonnées GPS enrichie
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
-    "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
-    "ST LAURENT SUR SEVRE": (46.9583, -0.8931), "PARIS": (48.8566, 2.3522), "LUCS SUR BOULOGNE": (46.8439, -1.4939),
-    "LES LUCS SUR BOULOGNE": (46.8439, -1.4939), "NUEIL LES AUBIERS": (46.9372, -0.5897),
-    "LA CHAPELLE DES POTS": (45.7608, -0.5408), "AIGONNAY": (46.3411, -0.2447), "FONTENAY LE COMTE": (46.4667, -0.8000),
-    "SAIVRES": (46.4250, -0.2319), "SAINTE SOULLE": (46.1856, -1.0117), "CUGAND": (47.0628, -1.2542),
-    "ST MAIXENT L'ECOLE": (46.4117, -0.2078), "CHAPELLE ST LAURENT": (46.8147, -0.4786),
+    "LES MATHES": (45.7183, -1.1472), "LES MATHES - LA PALMYRE": (45.7183, -1.1472), "LA PALMYRE": (45.7183, -1.1472),
+    "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558), "ST LAURENT SUR SEVRE": (46.9583, -0.8931),
+    "PARIS": (48.8566, 2.3522), "LUCS SUR BOULOGNE": (46.8439, -1.4939), "LES LUCS SUR BOULOGNE": (46.8439, -1.4939),
+    "NUEIL LES AUBIERS": (46.9372, -0.5897), "LA CHAPELLE DES POTS": (45.7608, -0.5408), "AIGONNAY": (46.3411, -0.2447),
+    "FONTENAY LE COMTE": (46.4667, -0.8000), "SAIVRES": (46.4250, -0.2319), "SAINTE SOULLE": (46.1856, -1.0117),
+    "CUGAND": (47.0628, -1.2542), "ST MAIXENT L'ECOLE": (46.4117, -0.2078), "CHAPELLE ST LAURENT": (46.8147, -0.4786),
     "ARCHINGEAY": (45.9328, -0.6558), "MERVENT": (46.5228, -0.7553), "VALLET": (47.1611, -1.2658),
     "AIGONDIGNE": (46.3486, -0.2883), "BOURNEZEAU": (46.6358, -1.1689), "VINCENNES": (48.8475, 2.4392),
     "ISSY LES MOULINEAUX": (48.8239, 2.2703), "CHAMPDENIERS": (46.4842, -0.4028), "CHAUCHE": (46.8308, -1.2694),
@@ -162,25 +205,24 @@ COORDS_VILLES = {
     "LE POIRE SUR VIE": (46.7672, -1.5017), "LE POIRÉ SUR VIE": (46.7672, -1.5017), "LE POIRE-SUR-VIE": (46.7672, -1.5017)
 }
 
+# (NOUVEAUTÉ) Sécurité GPS : ignore les "??" ou les valeurs bizarres de 2027
 @st.cache_data
 def get_coords_smart(lieu_str):
-    if not lieu_str or pd.isna(lieu_str):
-        return None, None
+    if not lieu_str or pd.isna(lieu_str): return None, None
+    lieu_clean = str(lieu_str).strip()
+    if lieu_clean.startswith('?') or lieu_clean.startswith('#') or len(lieu_clean) < 3: return None, None
     
-    ville = str(lieu_str).split('(')[0].strip().upper()
-    if ville in COORDS_VILLES:
-        return COORDS_VILLES[ville]
+    ville = lieu_clean.split('(')[0].strip().upper()
+    if ville in COORDS_VILLES: return COORDS_VILLES[ville]
     
     try:
-        match = re.search(r"\((.*?)\)", str(lieu_str))
+        match = re.search(r"\((.*?)\)", lieu_clean)
         dept = match.group(1) if match else ""
         query = f"{ville} {dept}, France" if dept else f"{ville}, France"
-        loc = geolocator.geocode(query, timeout=4)
-        if loc:
-            return loc.latitude, loc.longitude
+        loc = geolocator.geocode(query, timeout=3)
+        if loc: return loc.latitude, loc.longitude
     except Exception:
         pass
-        
     return None, None
 
 def categorize_course(type_course):
@@ -211,26 +253,23 @@ def extraire_km(distance_str):
 
 df_participations['Km_Calc'] = df_participations['Distance'].apply(extraire_km)
 
-liste_courses = df_courses["Nom de la course"].dropna().unique()
+# La liste déroulante utilise désormais le Label Unique
+liste_courses_labels = df_courses["Label_Unique"].dropna().unique()
 course_url = st.query_params.get("course", None)
-default_idx = list(liste_courses).index(course_url) if course_url and course_url in liste_courses else 0
+default_idx = list(liste_courses_labels).index(course_url) if course_url and course_url in liste_courses_labels else 0
 
 # --- FILTRAGE STRICT À DATE & AVEC INSCRITS ---
 today = datetime.now()
-courses_avec_inscrits = df_participations['Nom_Course'].dropna().unique()
+df_courses_a_date = df_courses[(df_courses['Date_dt'].notna()) & (df_courses['Date_dt'] <= today)].copy()
 
-df_courses_a_date = df_courses[
-    (df_courses['Nom de la course'].isin(courses_avec_inscrits)) &
-    (df_courses['Date_dt'].notna()) &
-    (df_courses['Date_dt'] <= today)
-].copy()
-
+# On croise par NOM ET DATE pour être précis
 df_participations_a_date = df_participations[
-    df_participations['Nom_Course'].isin(df_courses_a_date['Nom de la course'])
+    (df_participations['Nom_Course'].isin(df_courses_a_date['Nom de la course'])) & 
+    (df_participations['Date'].isin(df_courses_a_date['Date']))
 ].copy()
 
 # --- BANDEAU D'INDICATEURS CLÉS ---
-kpi_events = df_courses_a_date["Nom de la course"].nunique()
+kpi_events = df_courses_a_date["Label_Unique"].nunique()
 kpi_inscriptions = len(df_participations_a_date)
 kpi_depts = df_courses_a_date["Dept_Code"].dropna().nunique()
 
@@ -257,24 +296,33 @@ tab_fiche, tab_cal, tab_carte, tab_membre, tab_stats_km, tab_stats_glob = st.tab
 # --- TAB 1 : FICHE & INSCRIPTION ---
 with tab_fiche:
     st.subheader("📅 Sélectionner une course")
-    course_choisie = st.selectbox("Quelle course t'intéresse ?", liste_courses, index=default_idx)
+    course_choisie = st.selectbox("Quelle course t'intéresse ?", liste_courses_labels, index=default_idx)
 
     if course_choisie:
-        infos = df_courses[df_courses["Nom de la course"] == course_choisie].iloc[0]
+        # On retrouve la ligne exacte
+        infos = df_courses[df_courses["Label_Unique"] == course_choisie].iloc[0]
         col1, col2 = st.columns([2, 1])
         with col1:
             st.write(f"📍 **Lieu :** {infos['Lieu']}")
             st.write(f"🗓 **Date :** {infos['Date']}")
-            st.write(f"🏃 **Type :** {infos['Type de course']} ({infos['Détail']})")
-            if pd.notna(infos['Lien']) and infos['Lien'] != "Clos":
-                st.write(f"🔗 [Lien d'inscription]({infos['Lien']})")
+            st.write(f"🏃 **Type :** {infos['Type de course']} ({infos.get('Détail', '')})")
+            
+            # NOUVEAUTÉ : Affichage propre du Lien et de l'Image
+            lien_val = str(infos.get('Lien', '')).strip()
+            match_lien_url = re.search(r'https?://[^\s\)\(\"\']+', lien_val)
+            if match_lien_url:
+                st.write(f"🔗 [Lien d'inscription]({match_lien_url.group(0)})")
         with col2:
-            if 'Lien_Image' in infos and pd.notna(infos['Lien_Image']):
-                st.image(infos['Lien_Image'], width=300)
+            img_col = 'Visuel' if 'Visuel' in infos else ('Lien_Image' if 'Lien_Image' in infos else None)
+            if img_col and pd.notna(infos[img_col]):
+                raw_img = str(infos[img_col]).strip()
+                match_img_url = re.search(r'https?://[^\s\)\(\"\']+', raw_img)
+                if match_img_url:
+                    st.image(match_img_url.group(0), width=300)
 
         st.divider()
         st.subheader("👥 Déjà inscrits :")
-        inscrits = df_participations[df_participations["Nom_Course"] == course_choisie]
+        inscrits = df_participations[(df_participations["Nom_Course"] == infos["Nom de la course"]) & (df_participations["Date"] == infos["Date"])]
         
         if inscrits.empty:
             st.info("Aucun Raid Dingue n'est encore inscrit. Sois le premier !")
@@ -292,20 +340,23 @@ with tab_fiche:
             if submit and nom:
                 nouvelle_inscription = pd.DataFrame([{
                     "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"), "Date": infos['Date'], "Lieu": infos['Lieu'],            
-                    "Nom_Membre": nom, "Nom_Course": course_choisie, "Distance": distance, "Statut": "Inscrit", "Resultat": ""
+                    "Nom_Membre": nom, "Nom_Course": infos['Nom de la course'], "Distance": distance, "Statut": "Inscrit", "Resultat": ""
                 }])
                 df_updated = pd.concat([df_participations, nouvelle_inscription], ignore_index=True)
-                if 'Km_Calc' in df_updated.columns: df_updated = df_updated.drop(columns=['Km_Calc'])
+                cols_to_drop = [c for c in ['Km_Calc', 'Date_dt', 'Annee'] if c in df_updated.columns]
+                if cols_to_drop: df_updated = df_updated.drop(columns=cols_to_drop)
                 conn.update(worksheet="PARTICIPATIONS", data=df_updated)
                 st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
                 st.rerun()
 
 # --- TAB 2 : CALENDRIER VISUEL ---
 with tab_cal:
-    st.subheader("📅 Vue Calendrier Mensuel 2026")
-    col_m, col_f1, col_f2 = st.columns([2, 2, 2])
+    st.subheader(f"📅 Vue Calendrier Mensuel ({titre_annees})")
+    col_m0, col_m, col_f1, col_f2 = st.columns([1, 1, 2, 2])
+    with col_m0:
+        annee_cal = st.selectbox("Année :", sorted(annees_selectionnees))
     with col_m:
-        mois_selectionne = st.selectbox("Choisir le mois :", range(1, 13), index=0, format_func=lambda m: f"{MOIS_FR[m]} 2026")
+        mois_selectionne = st.selectbox("Choisir le mois :", range(1, 13), index=0, format_func=lambda m: MOIS_FR[m])
     with col_f1:
         cat_choices_cal = ["Toutes les courses"] + sorted(df_courses['Catégorie'].unique().tolist())
         filtre_type_cal = st.selectbox("🎯 Filtrer par discipline :", cat_choices_cal, key="cal_type")
@@ -314,7 +365,7 @@ with tab_cal:
         filtre_inscrits_cal = st.checkbox("🚩 Courses avec RD inscrits uniquement", key="cal_rd")
 
     cal = calendar.Calendar(firstweekday=0)
-    month_days = cal.monthdayscalendar(2026, mois_selectionne)
+    month_days = cal.monthdayscalendar(annee_cal, mois_selectionne)
 
     html_code = f"""<!DOCTYPE html>
 <html><head><style>
@@ -344,7 +395,7 @@ with tab_cal:
         for day in week:
             if day == 0: html_code += '<td class="cal-td cal-empty"></td>'
             else:
-                date_target = pd.Timestamp(year=2026, month=mois_selectionne, day=day)
+                date_target = pd.Timestamp(year=annee_cal, month=mois_selectionne, day=day)
                 courses_jour = df_courses[df_courses['Date_dt'] == date_target]
                 cell_content = f'<div class="day-num">{day}</div>'
                 
@@ -352,16 +403,16 @@ with tab_cal:
                     nom_raw = str(row['Nom de la course'])
                     if filtre_type_cal != "Toutes les courses" and row['Catégorie'] != filtre_type_cal: continue
                     
-                    inscrits_df = df_participations[df_participations['Nom_Course'] == nom_raw]
+                    inscrits_df = df_participations[(df_participations['Nom_Course'] == nom_raw) & (df_participations['Date'] == str(row['Date']))]
                     inscrits_liste = inscrits_df['Nom_Membre'].tolist()
                     nb_inscrits = len(inscrits_liste)
                     
                     if filtre_inscrits_cal and nb_inscrits == 0: continue
                         
                     nom_c = html.escape(nom_raw)
-                    inscrits_html = f"<br><b>👥 Inscrits ({nb_inscrits}) :</b><br>" + ", ".join([html.escape(m) for m in inscrits_liste]) if nb_inscrits > 0 else "<br><i>Aucun membre inscrit</i>"
-                    tooltip_body = f"<b>{nom_c}</b><br>📍 {html.escape(str(row['Lieu']))}<br>🏃 {html.escape(str(row['Type de course']))} ({html.escape(str(row['Détail']))}){inscrits_html}<br><br><span style='color: #38bdf8; font-weight: bold;'>👉 Clic pour m'inscrire</span>"
-                    click_action = f"navToCourse('{nom_raw.replace('`', '').replace('"', '').replace('+', '')}')"
+                    inscrits_html = f"<br><b>👥 Inscrits ({nb_inscrits}) :</b><br>" + ", ".join([html.escape(str(m)) for m in inscrits_liste]) if nb_inscrits > 0 else "<br><i>Aucun membre inscrit</i>"
+                    tooltip_body = f"<b>{nom_c}</b><br>📍 {html.escape(str(row['Lieu']))}<br>🏃 {html.escape(str(row['Type de course']))} ({html.escape(str(row.get('Détail', '')))}){inscrits_html}<br><br><span style='color: #38bdf8; font-weight: bold;'>👉 Clic pour m'inscrire</span>"
+                    click_action = f"navToCourse('{str(row['Label_Unique']).replace('`', '').replace('\"', '').replace('+', '')}')"
                     
                     if nb_inscrits > 0: cell_content += f'<div class="event-card event-red" onclick="{click_action}">🔴 {nom_c} ({nb_inscrits})<div class="tooltip-content">{tooltip_body}</div></div>'
                     else: cell_content += f'<div class="event-card event-blue" onclick="{click_action}">🏃 {nom_c}<div class="tooltip-content">{tooltip_body}</div></div>'
@@ -384,15 +435,10 @@ with tab_carte:
         
     dates_valides = df_courses['Date_dt'].dropna()
     min_d = dates_valides.min().date() if not dates_valides.empty else date(2026, 1, 1)
-    max_d = dates_valides.max().date() if not dates_valides.empty else date(2026, 12, 31)
+    max_d = dates_valides.max().date() if not dates_valides.empty else date(2027, 12, 31)
     
     with col_c2:
-        plage_dates = st.date_input(
-            "🗓️ Plage de dates :",
-            value=(min_d, max_d),
-            min_value=min_d,
-            max_value=max_d
-        )
+        plage_dates = st.date_input("🗓️ Plage de dates :", value=(min_d, max_d), min_value=min_d, max_value=max_d)
         
     with col_c3:
         st.write(""); st.write("")
@@ -420,8 +466,7 @@ with tab_carte:
             if not (start_date <= course_d <= end_date):
                 continue
             
-            nom_c = str(row['Nom de la course'])
-            inscrits_df = df_participations[df_participations['Nom_Course'] == nom_c]
+            inscrits_df = df_participations[(df_participations['Nom_Course'] == row['Nom de la course']) & (df_participations['Date'] == str(row['Date']))]
             nb_inscrits = len(inscrits_df)
             
             if filtre_inscrits and nb_inscrits == 0: 
@@ -432,11 +477,11 @@ with tab_carte:
                 icon_color = "red" if nb_inscrits > 0 else "blue"
                 icon_name, icon_prefix = get_icon_details(row['Catégorie'])
                 
-                popup_html = f"<div style='font-family: sans-serif; width: 180px;'><b>{html.escape(nom_c)}</b><br>📅 {row['Date']}<br>📍 {row['Lieu']}<br>🏃 {row['Type de course']}<br><small>{row['Détail']}</small><br><b>👥 Inscrits : {nb_inscrits}</b></div>"
+                popup_html = f"<div style='font-family: sans-serif; width: 180px;'><b>{html.escape(str(row['Nom de la course']))}</b><br>📅 {row['Date']}<br>📍 {row['Lieu']}<br>🏃 {row['Type de course']}<br><small>{row.get('Détail', '')}</small><br><b>👥 Inscrits : {nb_inscrits}</b></div>"
                 
                 folium.Marker(
                     location=[lat, lon], popup=folium.Popup(popup_html, max_width=220),
-                    tooltip=f"{nom_c} ({row['Date']})", name=nom_c,
+                    tooltip=str(row['Label_Unique']), name=str(row['Label_Unique']),
                     icon=folium.Icon(color=icon_color, icon=icon_name, prefix=icon_prefix)
                 ).add_to(m)
                 
@@ -444,25 +489,25 @@ with tab_carte:
     
     with col_details:
         st.write("### 📜 Palmarès de la course")
-        course_cliquee = None
-        if map_data and map_data.get("last_object_clicked_tooltip"):
-            clicked_tooltip = map_data["last_object_clicked_tooltip"]
-            course_cliquee = clicked_tooltip.rsplit(" (", 1)[0].strip()
+        course_cliquee_label = map_data.get("last_object_clicked_tooltip") if map_data else None
         
-        if not course_cliquee:
+        if not course_cliquee_label:
             st.info("👈 Clique sur un marqueur de la carte pour afficher la liste des participants.")
         else:
-            st.markdown(f"**Événement :** {course_cliquee}")
-            inscrits_course = df_participations[df_participations["Nom_Course"] == course_cliquee]
-            
-            if inscrits_course.empty:
-                st.warning("Aucun Raid Dingue n'est encore inscrit pour cette course.")
-                st.write(f"🔗 [M'inscrire à {course_cliquee}](?course={course_cliquee})")
-            else:
-                st.success(f"👥 {len(inscrits_course)} participant(s)")
-                inscrits_course = inscrits_course.sort_values(by="Km_Calc", ascending=False)
-                disp_cols_c = [c for c in ["Nom_Membre", "Distance", "Resultat"] if c in inscrits_course.columns]
-                st.dataframe(inscrits_course[disp_cols_c], hide_index=True, use_container_width=True)
+            infos_cliquee_df = df_courses[df_courses["Label_Unique"] == course_cliquee_label]
+            if not infos_cliquee_df.empty:
+                infos_cliquee = infos_cliquee_df.iloc[0]
+                st.markdown(f"**Événement :** {infos_cliquee['Nom de la course']}")
+                inscrits_course = df_participations[(df_participations["Nom_Course"] == infos_cliquee['Nom de la course']) & (df_participations["Date"] == str(infos_cliquee['Date']))]
+                
+                if inscrits_course.empty:
+                    st.warning("Aucun Raid Dingue n'est encore inscrit pour cette course.")
+                    st.write(f"🔗 [M'inscrire à {infos_cliquee['Nom de la course']}](?course={infos_cliquee['Label_Unique']})")
+                else:
+                    st.success(f"👥 {len(inscrits_course)} participant(s)")
+                    inscrits_course = inscrits_course.sort_values(by="Km_Calc", ascending=False)
+                    disp_cols_c = [c for c in ["Nom_Membre", "Distance", "Resultat"] if c in inscrits_course.columns]
+                    st.dataframe(inscrits_course[disp_cols_c], hide_index=True, use_container_width=True)
 
 # --- TAB 4 : FICHE MEMBRE ET SUIVI ---
 with tab_membre:
@@ -473,11 +518,11 @@ with tab_membre:
     else:
         membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_dispos)
         if membre_choisi:
-            p_membre = df_participations[df_participations["Nom_Membre"].apply(strip_accents) == strip_accents(membre_choisi)] if not df_participations.empty else pd.DataFrame()
+            p_membre = df_participations[df_participations["Nom_Membre"].astype(str).apply(strip_accents) == strip_accents(membre_choisi)] if not df_participations.empty else pd.DataFrame()
             if p_membre.empty: st.info(f"{membre_choisi} n'a aucune inscription.")
             else:
-                st.metric("Total d'inscriptions 2026", len(p_membre))
-                details_membre = p_membre.merge(df_courses[["Nom de la course", "Type de course"]], left_on="Nom_Course", right_on="Nom de la course", how="left")
+                st.metric("Total d'inscriptions sur la période", len(p_membre))
+                details_membre = p_membre.merge(df_courses[["Nom de la course", "Date", "Type de course"]].drop_duplicates(), left_on=["Nom_Course", "Date"], right_on=["Nom de la course", "Date"], how="left")
                 disp_cols_m = [c for c in ["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"] if c in details_membre.columns]
                 st.dataframe(details_membre[disp_cols_m], hide_index=True, use_container_width=True)
 
@@ -491,12 +536,12 @@ with tab_stats_km:
     total_km_club = df_finishers['Km_Calc'].sum() if not df_finishers.empty else 0.0
 
     with col_km_title:
-        st.subheader("🏆 Classement Kilométrique du Club (2026)")
+        st.subheader(f"🏆 Classement Kilométrique du Club ({titre_annees})")
     with col_km_metric:
         st.metric("Total kilomètres parcourus", f"{total_km_club:.1f} km")
     
     if df_finishers.empty: 
-        st.info("Aucun membre n'a encore le statut 'Terminé' ou 'Finisher'. Les kilomètres ne sont pas encore comptabilisés.")
+        st.info("Aucun membre n'a encore le statut 'Terminé' ou 'Finisher'.")
     else:
         stats_membres = df_finishers.groupby("Nom_Membre").agg(
             Courses_Totales=('Nom_Course', 'count'),
@@ -595,8 +640,13 @@ with tab_stats_glob:
             if df_participations_a_date.empty:
                 st.info("Aucune participation enregistrée à date.")
             else:
-                df_part_course = df_participations_a_date.groupby("Nom_Course").size().reset_index(name="Nombre de participants")
-                df_part_course = df_part_course.sort_values(by="Nombre de participants", ascending=False)
+                df_part_course = df_participations_a_date.groupby(["Nom_Course", "Date"]).size().reset_index(name="Nombre de participants")
+                df_part_course['Annee'] = pd.to_datetime(df_part_course['Date'], format='%d/%m/%Y', errors='coerce').dt.year
+                df_part_course['Manifestation'] = df_part_course.apply(
+                    lambda row: f"{row['Nom_Course']} ({int(row['Annee']) if pd.notna(row['Annee']) else 'Inconnue'})", 
+                    axis=1
+                )
                 
-                df_part_display = df_part_course.rename(columns={'Nom_Course': 'Manifestation'})[['Manifestation', 'Nombre de participants']]
+                df_part_course = df_part_course.sort_values(by="Nombre de participants", ascending=False)
+                df_part_display = df_part_course[['Manifestation', 'Nombre de participants']]
                 st.dataframe(df_part_display, hide_index=True, use_container_width=True)
