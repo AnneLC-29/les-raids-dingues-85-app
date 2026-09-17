@@ -346,7 +346,6 @@ with tab_carte:
         cat_choices = ["Toutes les courses"] + sorted(df_courses['Catégorie'].unique().tolist())
         filtre_type = st.selectbox("🎯 Filtrer par discipline :", cat_choices)
         
-    # Calcul des bornes de dates pour le sélecteur
     min_d = df_courses['Date_dt'].min().date() if not df_courses['Date_dt'].dropna().empty else date(2026, 1, 1)
     max_d = df_courses['Date_dt'].max().date() if not df_courses['Date_dt'].dropna().empty else date(2026, 12, 31)
     
@@ -362,7 +361,6 @@ with tab_carte:
         st.write(""); st.write("")
         filtre_inscrits = st.checkbox("🚩 Courses avec Raids Dingues uniquement", value=False)
         
-    # Gestion sécurisée du retour du composant date_input
     if isinstance(plage_dates, (tuple, list)) and len(plage_dates) == 2:
         start_date, end_date = plage_dates[0], plage_dates[1]
     elif isinstance(plage_dates, (tuple, list)) and len(plage_dates) == 1:
@@ -378,7 +376,6 @@ with tab_carte:
             if filtre_type != "Toutes les courses" and row['Catégorie'] != filtre_type: 
                 continue
             
-            # Filtre par plage de dates
             if pd.notna(row['Date_dt']):
                 course_d = row['Date_dt'].date()
                 if not (start_date <= course_d <= end_date):
@@ -447,7 +444,13 @@ with tab_membre:
 
 # --- TAB 5 : CLASSEMENT KILOMETRIQUE ---
 with tab_stats_km:
-    st.subheader("🏆 Classement Kilométrique du Club (2026)")
+    col_km_title, col_km_metric = st.columns([2, 1])
+    total_km_club = df_participations['Km_Calc'].sum() if not df_participations.empty else 0.0
+
+    with col_km_title:
+        st.subheader("🏆 Classement Kilométrique du Club (2026)")
+    with col_km_metric:
+        st.metric("Total kilomètres du club", f"{total_km_club:.1f} km")
     
     if df_participations.empty: 
         st.info("Aucune donnée disponible pour le classement.")
@@ -498,7 +501,6 @@ with tab_stats_glob:
         col_s_left, col_s_right = st.columns([1, 1])
         
         with col_s_left:
-            # 1. Manifestations par mois
             col_m_title, col_m_metric = st.columns([2, 1])
             counts_by_month = []
             for m_num in range(1, 13):
@@ -524,7 +526,6 @@ with tab_stats_glob:
             st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
             st.write("")
             
-            # 2. Départements
             df_depts = df_courses_a_date['Dept_Code'].dropna().value_counts().reset_index()
             df_depts.columns = ['Code_Dept', 'Nombre de courses']
             
