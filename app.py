@@ -84,9 +84,9 @@ def parse_course_date(d_str):
 # 1. Configuration de la page
 st.set_page_config(page_title="Raids Dingues 85", page_icon="🏃‍♂️", layout="wide")
 
-# ================= MENU LATÉRAL (FILTRE ANNÉES) =================
+# ================= MENU LATÉRAL =================
 st.sidebar.header("⚙️ Paramètres")
-st.sidebar.markdown("Coche les années que tu souhaites afficher sur l'application :")
+st.sidebar.markdown("Coche les années à afficher :")
 
 annees_disponibles = [2026, 2027]
 annees_selectionnees = st.sidebar.multiselect(
@@ -96,7 +96,7 @@ annees_selectionnees = st.sidebar.multiselect(
 )
 
 if not annees_selectionnees:
-    st.warning("⚠️ Veuillez sélectionner au moins une année dans le menu de gauche.")
+    st.warning("⚠️ Veuillez sélectionner au moins une année dans le menu latéral.")
     st.stop()
 
 annees_str = " & ".join(map(str, sorted(annees_selectionnees)))
@@ -106,7 +106,7 @@ st.write(f"Saison {annees_str} — Calendrier, Carte & Suivi des membres")
 # 2. Connexion au Google Sheet
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Lecture multi-onglets (2026 avec header=5, 2027 avec header=0 sur ligne 1)
+# Lecture multi-onglets
 try:
     df_2026 = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 except Exception:
@@ -119,14 +119,31 @@ except Exception:
 
 df_courses = pd.concat([df_2026, df_2027], ignore_index=True)
 if "Nom de la course" in df_courses.columns:
-    df_courses = df_courses.dropna(subset=["Nom de la course"])
+    df_courses = df_courses.dropna(subset=["Nom de la course"]).copy()
 else:
-    st.error("L'onglet BDD semble vide ou mal formaté.")
+    st.error("L'onglet BDD est introuvable ou mal formaté.")
     st.stop()
 
-df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
+try:
+    df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
+except Exception:
+    df_participations = pd.DataFrame()
 
-# Lecture de l'onglet MEMBRES
+# Colonnes minimales requises
+for col_req in ["Nom_Membre", "Nom_Course", "Distance", "Statut", "Resultat", "Date"]:
+    if col_req not in df_participations.columns:
+        df_participations[col_req] = ""
+
+# Correction nom colonnes
+rename_cols = {}
+for c in df_participations.columns:
+    if "sultat" in str(c).lower(): rename_cols[c] = "Resultat"
+    elif str(c).lower() in ["nom_prenom", "prenom_nom"]: rename_cols[c] = "Nom_Membre"
+    elif str(c).lower() == "distance_choisie": rename_cols[c] = "Distance"
+if rename_cols:
+    df_participations = df_participations.rename(columns=rename_cols)
+
+# Lecture des membres
 df_membres_clean = pd.DataFrame()
 try:
     df_membres = conn.read(worksheet="MEMBRES", ttl=10)
@@ -138,32 +155,20 @@ try:
 except Exception:
     liste_membres = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if "Nom_Membre" in df_participations.columns else []
 
-# Correction colonnes participations
-rename_cols = {}
-for c in df_participations.columns:
-    if "sultat" in str(c).lower(): rename_cols[c] = "Resultat"
-    elif str(c).lower() in ["nom_prenom", "prenom_nom"]: rename_cols[c] = "Nom_Membre"
-    elif str(c).lower() == "distance_choisie": rename_cols[c] = "Distance"
-if rename_cols:
-    df_participations = df_participations.rename(columns=rename_cols)
-
-# Traitement des DATES et ANNÉES pour df_courses
+# Traitement dates
 df_courses['Date_dt'] = df_courses['Date'].apply(parse_course_date)
 df_courses['Annee'] = df_courses['Date_dt'].dt.year
 df_courses = df_courses[df_courses['Annee'].isin(annees_selectionnees)].sort_values(by='Date_dt')
 df_courses['Dept_Code'] = df_courses['Lieu'].apply(extract_dept)
 
-# Création d'un Label Unique pour ne pas mélanger 2026 et 2027
 def create_label(row):
     annee = str(int(row['Annee'])) if pd.notna(row['Annee']) else "Inconnue"
     return f"{row['Nom de la course']} ({annee})"
 df_courses['Label_Unique'] = df_courses.apply(create_label, axis=1)
 
-# Traitement des DATES et ANNÉES pour df_participations
 df_participations['Date_dt'] = df_participations['Date'].apply(parse_course_date)
 df_participations['Annee'] = df_participations['Date_dt'].dt.year
 
-# On garde les participations liées aux années sélectionnées (ou sans date précise pour ne pas les perdre)
 df_participations = df_participations[
     df_participations['Annee'].isin(annees_selectionnees) | df_participations['Annee'].isna()
 ].copy()
@@ -173,7 +178,6 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base de coordonnées GPS enrichie
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -252,13 +256,12 @@ default_idx = list(liste_courses_labels).index(course_url) if course_url and cou
 today = datetime.now()
 df_courses_a_date = df_courses[(df_courses['Date_dt'].notna()) & (df_courses['Date_dt'] <= today)].copy()
 
-# Participations reliées à ces événements passés
 df_participations_a_date = df_participations[
     (df_participations['Nom_Course'].isin(df_courses_a_date['Nom de la course'])) & 
     (df_participations['Date'].isin(df_courses_a_date['Date']))
 ].copy()
 
-# --- BANDEAU D'INDICATEURS CLÉS ---
+# BANDEAU HAUT
 kpi_events = df_courses_a_date["Label_Unique"].nunique()
 kpi_inscriptions = len(df_participations_a_date)
 kpi_depts = df_courses_a_date["Dept_Code"].dropna().nunique()
@@ -270,61 +273,63 @@ with col_k3: st.metric("🗺️ Départements parcourus à date", kpi_depts)
 
 st.divider()
 
-# 4. Organisation en onglets
+# ONGLETS
 tab_fiche, tab_cal, tab_carte, tab_membre, tab_stats_km, tab_stats_glob = st.tabs([
     "📋 Fiche & Inscription", "📅 Calendrier Visuel", "🗺️ Carte des courses", 
     "👤 Fiche Membre", "🏆 Classement Kilométrique", "📊 Statistiques Globales"
 ])
 
-# --- TAB 1 : FICHE & INSCRIPTION ---
+# --- TAB 1 ---
 with tab_fiche:
     st.subheader("📅 Sélectionner une course")
-    course_choisie = st.selectbox("Quelle course t'intéresse ?", liste_courses_labels, index=default_idx)
+    if len(liste_courses_labels) == 0:
+        st.info("Aucune course disponible.")
+    else:
+        course_choisie = st.selectbox("Quelle course t'intéresse ?", liste_courses_labels, index=default_idx)
 
-    if course_choisie:
-        infos = df_courses[df_courses["Label_Unique"] == course_choisie].iloc[0]
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.write(f"📍 **Lieu :** {infos['Lieu']}")
-            st.write(f"🗓 **Date :** {infos['Date']}")
-            st.write(f"🏃 **Type :** {infos['Type de course']} ({infos['Détail']})")
-            if pd.notna(infos.get('Lien')) and infos.get('Lien') != "Clos":
-                st.write(f"🔗 [Lien d'inscription]({infos['Lien']})")
-        with col2:
-            if 'Lien_Image' in infos and pd.notna(infos['Lien_Image']):
-                st.image(infos['Lien_Image'], width=300)
+        if course_choisie:
+            infos = df_courses[df_courses["Label_Unique"] == course_choisie].iloc[0]
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.write(f"📍 **Lieu :** {infos['Lieu']}")
+                st.write(f"🗓 **Date :** {infos['Date']}")
+                st.write(f"🏃 **Type :** {infos['Type de course']} ({infos.get('Détail', '')})")
+                if pd.notna(infos.get('Lien')) and infos.get('Lien') != "Clos":
+                    st.write(f"🔗 [Lien d'inscription]({infos['Lien']})")
+            with col2:
+                if 'Lien_Image' in infos and pd.notna(infos['Lien_Image']):
+                    st.image(infos['Lien_Image'], width=300)
 
-        st.divider()
-        st.subheader("👥 Déjà inscrits :")
-        inscrits = df_participations[(df_participations["Nom_Course"] == infos["Nom de la course"]) & (df_participations["Date"] == infos["Date"])]
-        
-        if inscrits.empty:
-            st.info("Aucun Raid Dingue n'est encore inscrit. Sois le premier !")
-        else:
-            disp_cols = [c for c in ["Nom_Membre", "Distance", "Statut", "Resultat"] if c in inscrits.columns]
-            st.dataframe(inscrits[disp_cols], hide_index=True)
+            st.divider()
+            st.subheader("👥 Déjà inscrits :")
+            inscrits = df_participations[(df_participations["Nom_Course"] == infos["Nom de la course"]) & (df_participations["Date"] == infos["Date"])]
             
-        st.divider()
-        st.subheader("✍️ M'inscrire à cette course")
-        with st.form("form_inscription"):
-            nom = st.selectbox("Sélectionne ton Nom / Prénom", liste_membres) if liste_membres else st.text_input("Ton Prénom et Nom")
-            distance = st.text_input("Distance choisie (ex : 12 km)")
-            submit = st.form_submit_button("Je participe !")
-            
-            if submit and nom:
-                nouvelle_inscription = pd.DataFrame([{
-                    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"), "Date": infos['Date'], "Lieu": infos['Lieu'],            
-                    "Nom_Membre": nom, "Nom_Course": infos['Nom de la course'], "Distance": distance, "Statut": "Inscrit", "Resultat": ""
-                }])
-                df_updated = pd.concat([df_participations, nouvelle_inscription], ignore_index=True)
-                if 'Km_Calc' in df_updated.columns: df_updated = df_updated.drop(columns=['Km_Calc'])
-                if 'Date_dt' in df_updated.columns: df_updated = df_updated.drop(columns=['Date_dt'])
-                if 'Annee' in df_updated.columns: df_updated = df_updated.drop(columns=['Annee'])
-                conn.update(worksheet="PARTICIPATIONS", data=df_updated)
-                st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
-                st.rerun()
+            if inscrits.empty:
+                st.info("Aucun Raid Dingue n'est encore inscrit. Sois le premier !")
+            else:
+                disp_cols = [c for c in ["Nom_Membre", "Distance", "Statut", "Resultat"] if c in inscrits.columns]
+                st.dataframe(inscrits[disp_cols], hide_index=True)
+                
+            st.divider()
+            st.subheader("✍️ M'inscrire à cette course")
+            with st.form("form_inscription"):
+                nom = st.selectbox("Sélectionne ton Nom / Prénom", liste_membres) if liste_membres else st.text_input("Ton Prénom et Nom")
+                distance = st.text_input("Distance choisie (ex : 12 km)")
+                submit = st.form_submit_button("Je participe !")
+                
+                if submit and nom:
+                    nouvelle_inscription = pd.DataFrame([{
+                        "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"), "Date": infos['Date'], "Lieu": infos['Lieu'],            
+                        "Nom_Membre": nom, "Nom_Course": infos['Nom de la course'], "Distance": distance, "Statut": "Inscrit", "Resultat": ""
+                    }])
+                    df_updated = pd.concat([df_participations, nouvelle_inscription], ignore_index=True)
+                    cols_to_drop = [c for c in ['Km_Calc', 'Date_dt', 'Annee'] if c in df_updated.columns]
+                    if cols_to_drop: df_updated = df_updated.drop(columns=cols_to_drop)
+                    conn.update(worksheet="PARTICIPATIONS", data=df_updated)
+                    st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
+                    st.rerun()
 
-# --- TAB 2 : CALENDRIER VISUEL ---
+# --- TAB 2 ---
 with tab_cal:
     st.subheader(f"📅 Vue Calendrier Mensuel ({annees_str})")
     col_m0, col_m, col_f1, col_f2 = st.columns([1, 1, 2, 2])
@@ -398,7 +403,7 @@ with tab_cal:
     html_code += "</tbody></table></body></html>"
     components.html(html_code, height=680, scrolling=True)
 
-# --- TAB 3 : CARTE INTERACTIVE ---
+# --- TAB 3 ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses & Détails")
     
@@ -474,108 +479,126 @@ with tab_carte:
                     inscrits_course = inscrits_course.sort_values(by="Km_Calc", ascending=False)
                     disp_cols_c = [c for c in ["Nom_Membre", "Distance", "Resultat"] if c in inscrits_course.columns]
                     st.dataframe(inscrits_course[disp_cols_c], hide_index=True, use_container_width=True)
-            except IndexError:
+            except Exception:
                 st.info("Données de course introuvables.")
 
 # --- TAB 4 : FICHE MEMBRE ---
 with tab_membre:
     st.subheader("👤 Suivi individuel des membres")
-    membres_dispos = liste_membres if liste_membres else sorted(df_participations["Nom_Membre"].dropna().unique().tolist())
-    
-    if not membres_dispos: st.info("Aucun membre disponible.")
-    else:
-        membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_dispos)
-        if membre_choisi:
-            p_membre = df_participations[df_participations["Nom_Membre"].apply(strip_accents) == strip_accents(membre_choisi)] if not df_participations.empty else pd.DataFrame()
-            if p_membre.empty: st.info(f"{membre_choisi} n'a aucune inscription sur la saison {annees_str}.")
-            else:
-                st.metric(f"Total d'inscriptions ({annees_str})", len(p_membre))
-                details_membre = p_membre.merge(df_courses[["Nom de la course", "Date", "Type de course"]], left_on=["Nom_Course", "Date"], right_on=["Nom de la course", "Date"], how="left")
-                disp_cols_m = [c for c in ["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"] if c in details_membre.columns]
-                st.dataframe(details_membre[disp_cols_m], hide_index=True, use_container_width=True)
-
-# --- TAB 5 : CLASSEMENT KILOMETRIQUE ---
-with tab_stats_km:
-    col_km_title, col_km_metric = st.columns([2, 1])
-    
-    mots_valides = ['terminé', 'termine', 'finisher']
-    df_finishers = df_participations[df_participations['Statut'].astype(str).str.strip().str.lower().isin(mots_valides)]
-    total_km_club = df_finishers['Km_Calc'].sum() if not df_finishers.empty else 0.0
-
-    with col_km_title:
-        st.subheader(f"🏆 Classement Kilométrique du Club ({annees_str})")
-    with col_km_metric:
-        st.metric("Total kilomètres parcourus", f"{total_km_club:.1f} km")
-    
-    if df_finishers.empty: 
-        st.info("Aucun kilomètre validé sur la période sélectionnée.")
-    else:
-        stats_membres = df_finishers.groupby("Nom_Membre").agg(Courses_Totales=('Nom_Course', 'count'), Km_Parcourus=('Km_Calc', 'sum')).reset_index()
-        stats_membres['Key_Match'] = stats_membres['Nom_Membre'].apply(strip_accents)
+    try:
+        membres_dispos = liste_membres if liste_membres else sorted(df_participations["Nom_Membre"].dropna().unique().tolist())
         
-        if not df_membres_clean.empty:
-            stats_membres = stats_membres.merge(df_membres_clean, on='Key_Match', how='left')
-            stats_membres['Sexe'] = stats_membres['Sexe_Clean'].map({'H': '👨 Homme', 'F': '👩 Femme'}).fillna('❓ Non renseigné')
-            stats_membres = stats_membres.drop(columns=['Key_Match', 'Sexe_Clean'])
+        if not membres_dispos:
+            st.info("Aucun membre disponible.")
         else:
-            stats_membres['Sexe'] = '❓ Non renseigné'
-            
-        stats_membres = stats_membres.sort_values(by=['Km_Parcourus', 'Nom_Membre'], ascending=[False, True])
-        stats_display = stats_membres.rename(columns={'Nom_Membre': 'Membre', 'Courses_Totales': 'Nb Courses Terminées', 'Km_Parcourus': 'Distance Totale (km)'})[['Membre', 'Sexe', 'Nb Courses Terminées', 'Distance Totale (km)']]
-        stats_display['Distance Totale (km)'] = stats_display['Distance Totale (km)'].round(1)
+            membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_dispos)
+            if membre_choisi:
+                p_membre = df_participations[df_participations["Nom_Membre"].astype(str).apply(strip_accents) == strip_accents(membre_choisi)] if not df_participations.empty else pd.DataFrame()
+                if p_membre.empty:
+                    st.info(f"{membre_choisi} n'a aucune inscription sur la saison {annees_str}.")
+                else:
+                    st.metric(f"Total d'inscriptions ({annees_str})", len(p_membre))
+                    details_membre = p_membre.merge(
+                        df_courses[["Nom de la course", "Date", "Type de course"]].drop_duplicates(), 
+                        left_on=["Nom_Course", "Date"], 
+                        right_on=["Nom de la course", "Date"], 
+                        how="left"
+                    )
+                    disp_cols_m = [c for c in ["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"] if c in details_membre.columns]
+                    st.dataframe(details_membre[disp_cols_m], hide_index=True, use_container_width=True)
+    except Exception as e:
+        st.error(f"Erreur d'affichage de la fiche membre : {e}")
+
+# --- TAB 5 : CLASSEMENT KILOMÉTRIQUE ---
+with tab_stats_km:
+    try:
+        col_km_title, col_km_metric = st.columns([2, 1])
         
-        def style_rows(row): return ['background-color: #fef9c3; color: #1e293b; font-weight: 500;'] * len(row) if 'Femme' in str(row['Sexe']) else [''] * len(row)
-        st.dataframe(stats_display.style.apply(style_rows, axis=1).format({'Distance Totale (km)': '{:.1f} km'}), use_container_width=True, hide_index=True)
+        mots_valides = ['terminé', 'termine', 'finisher']
+        df_finishers = df_participations[df_participations['Statut'].astype(str).str.strip().str.lower().isin(mots_valides)] if not df_participations.empty else pd.DataFrame()
+        total_km_club = df_finishers['Km_Calc'].sum() if not df_finishers.empty else 0.0
+
+        with col_km_title:
+            st.subheader(f"🏆 Classement Kilométrique du Club ({annees_str})")
+        with col_km_metric:
+            st.metric("Total kilomètres parcourus", f"{total_km_club:.1f} km")
+        
+        if df_finishers.empty: 
+            st.info("Aucun kilomètre validé sur la période sélectionnée.")
+        else:
+            stats_membres = df_finishers.groupby("Nom_Membre").agg(Courses_Totales=('Nom_Course', 'count'), Km_Parcourus=('Km_Calc', 'sum')).reset_index()
+            stats_membres['Key_Match'] = stats_membres['Nom_Membre'].astype(str).apply(strip_accents)
+            
+            if not df_membres_clean.empty:
+                stats_membres = stats_membres.merge(df_membres_clean, on='Key_Match', how='left')
+                stats_membres['Sexe'] = stats_membres['Sexe_Clean'].map({'H': '👨 Homme', 'F': '👩 Femme'}).fillna('❓ Non renseigné')
+                stats_membres = stats_membres.drop(columns=['Key_Match', 'Sexe_Clean'])
+            else:
+                stats_membres['Sexe'] = '❓ Non renseigné'
+                
+            stats_membres = stats_membres.sort_values(by=['Km_Parcourus', 'Nom_Membre'], ascending=[False, True])
+            stats_display = stats_membres.rename(columns={'Nom_Membre': 'Membre', 'Courses_Totales': 'Nb Courses Terminées', 'Km_Parcourus': 'Distance Totale (km)'})[['Membre', 'Sexe', 'Nb Courses Terminées', 'Distance Totale (km)']]
+            stats_display['Distance Totale (km)'] = stats_display['Distance Totale (km)'].round(1)
+            
+            def style_rows(row): return ['background-color: #fef9c3; color: #1e293b; font-weight: 500;'] * len(row) if 'Femme' in str(row['Sexe']) else [''] * len(row)
+            st.dataframe(stats_display.style.apply(style_rows, axis=1).format({'Distance Totale (km)': '{:.1f} km'}), use_container_width=True, hide_index=True)
+    except Exception as e:
+        st.error(f"Erreur d'affichage du classement kilométrique : {e}")
 
 # --- TAB 6 : STATISTIQUES GLOBALES ---
 with tab_stats_glob:
-    st.subheader(f"📊 Statistiques Récapitulatives ({annees_str})")
-    
-    if df_courses_a_date.empty:
-        st.info("Aucun événement couru avec des inscrits à ce jour pour l'année sélectionnée.")
-    else:
-        col_s_left, col_s_right = st.columns([1, 1])
+    try:
+        st.subheader(f"📊 Statistiques Récapitulatives ({annees_str})")
         
-        with col_s_left:
-            col_m_title, col_m_metric = st.columns([2, 1])
-            counts_by_month = []
-            for m_num in range(1, 13):
-                nb_m = len(df_courses_a_date[df_courses_a_date['Date_dt'].dt.month == m_num])
-                counts_by_month.append({"Mois": MOIS_FR[m_num], "Nombre de manifestations": nb_m})
+        if df_courses_a_date.empty:
+            st.info("Aucun événement couru avec des inscrits à ce jour pour l'année sélectionnée.")
+        else:
+            col_s_left, col_s_right = st.columns([1, 1])
+            
+            with col_s_left:
+                col_m_title, col_m_metric = st.columns([2, 1])
+                counts_by_month = []
+                for m_num in range(1, 13):
+                    nb_m = len(df_courses_a_date[df_courses_a_date['Date_dt'].dt.month == m_num])
+                    counts_by_month.append({"Mois": MOIS_FR[m_num], "Nombre de manifestations": nb_m})
+                    
+                df_month_stats = pd.DataFrame(counts_by_month)
+                total_manifestations = df_month_stats["Nombre de manifestations"].sum()
                 
-            df_month_stats = pd.DataFrame(counts_by_month)
-            total_manifestations = df_month_stats["Nombre de manifestations"].sum()
-            
-            with col_m_title: st.write("#### 📅 Manifestations par mois")
-            with col_m_metric: st.metric("Total événements", total_manifestations)
-            
-            df_month_stats_total = pd.concat([df_month_stats, pd.DataFrame([{"Mois": "TOTAL", "Nombre de manifestations": total_manifestations}])], ignore_index=True)
-            st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
-            st.write("")
-            
-            df_depts = df_courses_a_date['Dept_Code'].dropna().value_counts().reset_index()
-            df_depts.columns = ['Code_Dept', 'Nombre de courses']
-            df_depts['Lieu des courses'] = df_depts['Code_Dept'].apply(lambda code: f"{code} - {DEPTS_NAMES.get(code, 'Inconnu')}")
-            df_depts = df_depts.sort_values(by='Code_Dept')[['Lieu des courses', 'Nombre de courses']]
-            
-            col_d_title, col_d_metric = st.columns([2, 1])
-            with col_d_title: st.write("#### 🗺️ Départements courus")
-            with col_d_metric: st.metric("Départements distincts", len(df_depts))
-            st.dataframe(df_depts, hide_index=True, use_container_width=True)
+                with col_m_title: st.write("#### 📅 Manifestations par mois")
+                with col_m_metric: st.metric("Total événements", total_manifestations)
+                
+                df_month_stats_total = pd.concat([df_month_stats, pd.DataFrame([{"Mois": "TOTAL", "Nombre de manifestations": total_manifestations}])], ignore_index=True)
+                st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
+                st.write("")
+                
+                # Départements
+                depts_series = df_courses_a_date['Dept_Code'].dropna().value_counts()
+                df_depts = pd.DataFrame({'Code_Dept': depts_series.index, 'Nombre de courses': depts_series.values})
+                df_depts['Lieu des courses'] = df_depts['Code_Dept'].apply(lambda code: f"{code} - {DEPTS_NAMES.get(code, 'Inconnu')}")
+                df_depts = df_depts.sort_values(by='Code_Dept')[['Lieu des courses', 'Nombre de courses']]
+                
+                col_d_title, col_d_metric = st.columns([2, 1])
+                with col_d_title: st.write("#### 🗺️ Départements courus")
+                with col_d_metric: st.metric("Départements distincts", len(df_depts))
+                st.dataframe(df_depts, hide_index=True, use_container_width=True)
 
-        with col_s_right:
-            st.write("#### 👥 Participants par manifestation")
-            st.metric("Total de participants à date", len(df_participations_a_date))
-            
-            if df_participations_a_date.empty:
-                st.info("Aucune participation enregistrée à date.")
-            else:
-                # Groupby Name AND Date to avoid merging homonymous races
-                df_part_course = df_participations_a_date.groupby(["Nom_Course", "Date"]).size().reset_index(name="Nombre de participants")
-                # Create the Label_Unique for display
-                df_part_course['Annee'] = pd.to_datetime(df_part_course['Date'], format='%d/%m/%Y', errors='coerce').dt.year
-                df_part_course['Manifestation'] = df_part_course.apply(lambda row: f"{row['Nom_Course']} ({int(row['Annee']) if pd.notna(row['Annee']) else 'Inconnue'})", axis=1)
+            with col_s_right:
+                st.write("#### 👥 Participants par manifestation")
+                st.metric("Total de participants à date", len(df_participations_a_date))
                 
-                df_part_course = df_part_course.sort_values(by="Nombre de participants", ascending=False)
-                df_part_display = df_part_course[['Manifestation', 'Nombre de participants']]
-                st.dataframe(df_part_display, hide_index=True, use_container_width=True)
+                if df_participations_a_date.empty:
+                    st.info("Aucune participation enregistrée à date.")
+                else:
+                    df_part_course = df_participations_a_date.groupby(["Nom_Course", "Date"]).size().reset_index(name="Nombre de participants")
+                    df_part_course['Annee'] = pd.to_datetime(df_part_course['Date'], format='%d/%m/%Y', errors='coerce').dt.year
+                    df_part_course['Manifestation'] = df_part_course.apply(
+                        lambda row: f"{row['Nom_Course']} ({int(row['Annee']) if pd.notna(row['Annee']) else 'Inconnue'})", 
+                        axis=1
+                    )
+                    
+                    df_part_course = df_part_course.sort_values(by="Nombre de participants", ascending=False)
+                    df_part_display = df_part_course[['Manifestation', 'Nombre de participants']]
+                    st.dataframe(df_part_display, hide_index=True, use_container_width=True)
+    except Exception as e:
+        st.error(f"Erreur d'affichage des statistiques globales : {e}")
