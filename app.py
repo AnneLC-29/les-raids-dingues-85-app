@@ -51,6 +51,19 @@ def extract_dept(lieu_str):
     match = re.search(r'\((\d{2,3}|2A|2B)\)', str(lieu_str))
     return match.group(1) if match else None
 
+def parse_course_date(d_str):
+    if pd.isna(d_str):
+        return pd.NaT
+    d_str = str(d_str).strip()
+    match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', d_str)
+    if match:
+        day, month, year = match.groups()
+        try:
+            return pd.Timestamp(year=int(year), month=int(month), day=int(day))
+        except Exception:
+            return pd.NaT
+    return pd.NaT
+
 # 1. Configuration de la page
 st.set_page_config(page_title="Raids Dingues 85", page_icon="🏃‍♂️", layout="wide")
 st.title("🏃‍♂️ Raids Dingues 85")
@@ -88,8 +101,8 @@ for c in df_participations.columns:
 if rename_cols:
     df_participations = df_participations.rename(columns=rename_cols)
 
-# Conversion des dates et extraction des départements
-df_courses['Date_dt'] = pd.to_datetime(df_courses['Date'], format='%d/%m/%Y', errors='coerce')
+# Conversion intelligente des dates et extraction des départements
+df_courses['Date_dt'] = df_courses['Date'].apply(parse_course_date)
 df_courses = df_courses.sort_values(by='Date_dt')
 df_courses['Dept_Code'] = df_courses['Lieu'].apply(extract_dept)
 
@@ -336,7 +349,7 @@ with tab_cal:
     html_code += "</tbody></table></body></html>"
     components.html(html_code, height=680, scrolling=True)
 
-# --- TAB 3 : CARTE INTERACTIVE & PANNEAU DROIT (AVEC FILTRE DE DATES) ---
+# --- TAB 3 : CARTE INTERACTIVE & PANNEAU DROIT (AVEC FILTRE DE DATES CORRIGÉ) ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses & Détails")
     
@@ -346,8 +359,9 @@ with tab_carte:
         cat_choices = ["Toutes les courses"] + sorted(df_courses['Catégorie'].unique().tolist())
         filtre_type = st.selectbox("🎯 Filtrer par discipline :", cat_choices)
         
-    min_d = df_courses['Date_dt'].min().date() if not df_courses['Date_dt'].dropna().empty else date(2026, 1, 1)
-    max_d = df_courses['Date_dt'].max().date() if not df_courses['Date_dt'].dropna().empty else date(2026, 12, 31)
+    dates_valides = df_courses['Date_dt'].dropna()
+    min_d = dates_valides.min().date() if not dates_valides.empty else date(2026, 1, 1)
+    max_d = dates_valides.max().date() if not dates_valides.empty else date(2026, 12, 31)
     
     with col_c2:
         plage_dates = st.date_input(
@@ -376,10 +390,13 @@ with tab_carte:
             if filtre_type != "Toutes les courses" and row['Catégorie'] != filtre_type: 
                 continue
             
-            if pd.notna(row['Date_dt']):
-                course_d = row['Date_dt'].date()
-                if not (start_date <= course_d <= end_date):
-                    continue
+            # Exclusion stricte des dates hors plage ou illisibles
+            if pd.isna(row['Date_dt']):
+                continue
+                
+            course_d = row['Date_dt'].date()
+            if not (start_date <= course_d <= end_date):
+                continue
             
             nom_c = str(row['Nom de la course'])
             inscrits_df = df_participations[df_participations['Nom_Course'] == nom_c]
