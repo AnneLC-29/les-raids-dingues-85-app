@@ -468,8 +468,8 @@ with tab_stats_glob:
         col_s_left, col_s_right = st.columns([1, 1])
         
         with col_s_left:
-            st.write("#### 📅 Nombre de manifestations par mois (à date)")
-            
+            # 1. Manifestations par mois
+            col_m_title, col_m_metric = st.columns([2, 1])
             counts_by_month = []
             for m_num in range(1, 13):
                 nb_m = len(df_courses_a_date[df_courses_a_date['Date_dt'].dt.month == m_num])
@@ -481,6 +481,11 @@ with tab_stats_glob:
             df_month_stats = pd.DataFrame(counts_by_month)
             total_manifestations = df_month_stats["Nombre de manifestations"].sum()
             
+            with col_m_title:
+                st.write("#### 📅 Nombre de manifestations par mois (à date)")
+            with col_m_metric:
+                st.metric("Total événements", total_manifestations)
+            
             df_month_stats_total = pd.concat([
                 df_month_stats,
                 pd.DataFrame([{"Mois": "TOTAL", "Nombre de manifestations": total_manifestations}])
@@ -489,8 +494,7 @@ with tab_stats_glob:
             st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
             st.write("")
             
-            st.write("#### 🗺️ Lieu des courses (Départements à date)")
-            
+            # 2. Départements
             df_depts = df_courses_a_date['Dept_Code'].dropna().value_counts().reset_index()
             df_depts.columns = ['Code_Dept', 'Nombre de courses']
             
@@ -499,6 +503,13 @@ with tab_stats_glob:
             )
             
             df_depts = df_depts.sort_values(by='Code_Dept')[['Lieu des courses', 'Nombre de courses']]
+            
+            col_d_title, col_d_metric = st.columns([2, 1])
+            with col_d_title:
+                st.write("#### 🗺️ Lieu des courses (Départements à date)")
+            with col_d_metric:
+                st.metric("Départements distincts", len(df_depts))
+                
             st.dataframe(df_depts, hide_index=True, use_container_width=True)
 
         with col_s_right:
