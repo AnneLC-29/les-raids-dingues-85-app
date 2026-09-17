@@ -92,7 +92,7 @@ annees_disponibles = [2026, 2027]
 annees_selectionnees = st.sidebar.multiselect(
     "Sélectionner la / les saison(s) :", 
     options=annees_disponibles, 
-    default=[2026]
+    default=[2026, 2027]
 )
 
 if not annees_selectionnees:
@@ -106,7 +106,6 @@ st.write(f"Saison {annees_str} — Calendrier, Carte & Suivi des membres")
 # 2. Connexion au Google Sheet
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Lecture multi-onglets
 try:
     df_2026 = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 except Exception:
@@ -129,12 +128,10 @@ try:
 except Exception:
     df_participations = pd.DataFrame()
 
-# Colonnes minimales requises
 for col_req in ["Nom_Membre", "Nom_Course", "Distance", "Statut", "Resultat", "Date"]:
     if col_req not in df_participations.columns:
         df_participations[col_req] = ""
 
-# Correction nom colonnes
 rename_cols = {}
 for c in df_participations.columns:
     if "sultat" in str(c).lower(): rename_cols[c] = "Resultat"
@@ -143,7 +140,6 @@ for c in df_participations.columns:
 if rename_cols:
     df_participations = df_participations.rename(columns=rename_cols)
 
-# Lecture des membres
 df_membres_clean = pd.DataFrame()
 try:
     df_membres = conn.read(worksheet="MEMBRES", ttl=10)
@@ -155,7 +151,6 @@ try:
 except Exception:
     liste_membres = sorted(df_participations["Nom_Membre"].dropna().unique().tolist()) if "Nom_Membre" in df_participations.columns else []
 
-# Traitement dates
 df_courses['Date_dt'] = df_courses['Date'].apply(parse_course_date)
 df_courses['Annee'] = df_courses['Date_dt'].dt.year
 df_courses = df_courses[df_courses['Annee'].isin(annees_selectionnees)].sort_values(by='Date_dt')
@@ -180,12 +175,12 @@ MOIS_FR = {
 
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
-    "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
-    "ST LAURENT SUR SEVRE": (46.9583, -0.8931), "PARIS": (48.8566, 2.3522), "LUCS SUR BOULOGNE": (46.8439, -1.4939),
-    "LES LUCS SUR BOULOGNE": (46.8439, -1.4939), "NUEIL LES AUBIERS": (46.9372, -0.5897),
-    "LA CHAPELLE DES POTS": (45.7608, -0.5408), "AIGONNAY": (46.3411, -0.2447), "FONTENAY LE COMTE": (46.4667, -0.8000),
-    "SAIVRES": (46.4250, -0.2319), "SAINTE SOULLE": (46.1856, -1.0117), "CUGAND": (47.0628, -1.2542),
-    "ST MAIXENT L'ECOLE": (46.4117, -0.2078), "CHAPELLE ST LAURENT": (46.8147, -0.4786),
+    "LES MATHES": (45.7183, -1.1472), "LES MATHES - LA PALMYRE": (45.7183, -1.1472), "LA PALMYRE": (45.7183, -1.1472),
+    "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558), "ST LAURENT SUR SEVRE": (46.9583, -0.8931),
+    "PARIS": (48.8566, 2.3522), "LUCS SUR BOULOGNE": (46.8439, -1.4939), "LES LUCS SUR BOULOGNE": (46.8439, -1.4939),
+    "NUEIL LES AUBIERS": (46.9372, -0.5897), "LA CHAPELLE DES POTS": (45.7608, -0.5408), "AIGONNAY": (46.3411, -0.2447),
+    "FONTENAY LE COMTE": (46.4667, -0.8000), "SAIVRES": (46.4250, -0.2319), "SAINTE SOULLE": (46.1856, -1.0117),
+    "CUGAND": (47.0628, -1.2542), "ST MAIXENT L'ECOLE": (46.4117, -0.2078), "CHAPELLE ST LAURENT": (46.8147, -0.4786),
     "ARCHINGEAY": (45.9328, -0.6558), "MERVENT": (46.5228, -0.7553), "VALLET": (47.1611, -1.2658),
     "AIGONDIGNE": (46.3486, -0.2883), "BOURNEZEAU": (46.6358, -1.1689), "VINCENNES": (48.8475, 2.4392),
     "ISSY LES MOULINEAUX": (48.8239, 2.2703), "CHAMPDENIERS": (46.4842, -0.4028), "CHAUCHE": (46.8308, -1.2694),
@@ -206,16 +201,27 @@ COORDS_VILLES = {
     "LE POIRE SUR VIE": (46.7672, -1.5017), "LE POIRÉ SUR VIE": (46.7672, -1.5017), "LE POIRE-SUR-VIE": (46.7672, -1.5017)
 }
 
+# Sécurisation du géolocaliseur pour éviter les blocages
 @st.cache_data
 def get_coords_smart(lieu_str):
     if not lieu_str or pd.isna(lieu_str): return None, None
-    ville = str(lieu_str).split('(')[0].strip().upper()
+    lieu_clean = str(lieu_str).strip()
+    
+    # Ignore immédiatement les données vides ou inconnues (?, #N/A...)
+    if lieu_clean.startswith('?') or lieu_clean.startswith('#') or len(lieu_clean) < 3:
+        return None, None
+        
+    ville = lieu_clean.split('(')[0].strip().upper()
     if ville in COORDS_VILLES: return COORDS_VILLES[ville]
+    
+    if '?' in ville or '#' in ville or 'N/A' in ville:
+        return None, None
+        
     try:
-        match = re.search(r"\((.*?)\)", str(lieu_str))
+        match = re.search(r"\((.*?)\)", lieu_clean)
         dept = match.group(1) if match else ""
         query = f"{ville} {dept}, France" if dept else f"{ville}, France"
-        loc = geolocator.geocode(query, timeout=4)
+        loc = geolocator.geocode(query, timeout=2)
         if loc: return loc.latitude, loc.longitude
     except Exception: pass
     return None, None
@@ -252,7 +258,6 @@ liste_courses_labels = df_courses["Label_Unique"].dropna().unique()
 course_url = st.query_params.get("course", None)
 default_idx = list(liste_courses_labels).index(course_url) if course_url and course_url in liste_courses_labels else 0
 
-# --- FILTRAGE STRICT À DATE ---
 today = datetime.now()
 df_courses_a_date = df_courses[(df_courses['Date_dt'].notna()) & (df_courses['Date_dt'] <= today)].copy()
 
@@ -261,7 +266,6 @@ df_participations_a_date = df_participations[
     (df_participations['Date'].isin(df_courses_a_date['Date']))
 ].copy()
 
-# BANDEAU HAUT
 kpi_events = df_courses_a_date["Label_Unique"].nunique()
 kpi_inscriptions = len(df_participations_a_date)
 kpi_depts = df_courses_a_date["Dept_Code"].dropna().nunique()
@@ -273,13 +277,12 @@ with col_k3: st.metric("🗺️ Départements parcourus à date", kpi_depts)
 
 st.divider()
 
-# ONGLETS
 tab_fiche, tab_cal, tab_carte, tab_membre, tab_stats_km, tab_stats_glob = st.tabs([
     "📋 Fiche & Inscription", "📅 Calendrier Visuel", "🗺️ Carte des courses", 
     "👤 Fiche Membre", "🏆 Classement Kilométrique", "📊 Statistiques Globales"
 ])
 
-# --- TAB 1 ---
+# --- TAB 1 : FICHE & INSCRIPTION ---
 with tab_fiche:
     st.subheader("📅 Sélectionner une course")
     if len(liste_courses_labels) == 0:
@@ -294,11 +297,23 @@ with tab_fiche:
                 st.write(f"📍 **Lieu :** {infos['Lieu']}")
                 st.write(f"🗓 **Date :** {infos['Date']}")
                 st.write(f"🏃 **Type :** {infos['Type de course']} ({infos.get('Détail', '')})")
-                if pd.notna(infos.get('Lien')) and infos.get('Lien') != "Clos":
-                    st.write(f"🔗 [Lien d'inscription]({infos['Lien']})")
+                
+                # Gestion propre du lien d'inscription
+                lien_val = str(infos.get('Lien', '')).strip()
+                match_lien_url = re.search(r'https?://[^\s\)\(\"\']+', lien_val)
+                if match_lien_url:
+                    st.write(f"🔗 [Lien d'inscription]({match_lien_url.group(0)})")
+                elif lien_val and lien_val.lower() not in ["clos", "nan", "lien d'inscription"]:
+                    st.write(f"🔗 **Lien :** {lien_val}")
+                    
             with col2:
-                if 'Lien_Image' in infos and pd.notna(infos['Lien_Image']):
-                    st.image(infos['Lien_Image'], width=300)
+                # Recherche d'image dans la colonne 'Visuel' ou 'Lien_Image'
+                img_col = 'Visuel' if 'Visuel' in infos else ('Lien_Image' if 'Lien_Image' in infos else None)
+                if img_col and pd.notna(infos[img_col]):
+                    raw_img = str(infos[img_col]).strip()
+                    match_img_url = re.search(r'https?://[^\s\)\(\"\']+', raw_img)
+                    if match_img_url:
+                        st.image(match_img_url.group(0), width=300)
 
             st.divider()
             st.subheader("👥 Déjà inscrits :")
@@ -329,7 +344,7 @@ with tab_fiche:
                     st.success(f"Bravo {nom} ! Ton inscription a été enregistrée.")
                     st.rerun()
 
-# --- TAB 2 ---
+# --- TAB 2 : CALENDRIER VISUEL ---
 with tab_cal:
     st.subheader(f"📅 Vue Calendrier Mensuel ({annees_str})")
     col_m0, col_m, col_f1, col_f2 = st.columns([1, 1, 2, 2])
@@ -403,7 +418,7 @@ with tab_cal:
     html_code += "</tbody></table></body></html>"
     components.html(html_code, height=680, scrolling=True)
 
-# --- TAB 3 ---
+# --- TAB 3 : CARTE INTERACTIVE ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses & Détails")
     
@@ -572,7 +587,6 @@ with tab_stats_glob:
                 st.dataframe(df_month_stats_total, hide_index=True, use_container_width=True)
                 st.write("")
                 
-                # Départements
                 depts_series = df_courses_a_date['Dept_Code'].dropna().value_counts()
                 df_depts = pd.DataFrame({'Code_Dept': depts_series.index, 'Nombre de courses': depts_series.values})
                 df_depts['Lieu des courses'] = df_depts['Code_Dept'].apply(lambda code: f"{code} - {DEPTS_NAMES.get(code, 'Inconnu')}")
