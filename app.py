@@ -38,6 +38,12 @@ DEPTS_NAMES = {
     "974": "La Réunion", "976": "Mayotte"
 }
 
+MOIS_TEXTE = {
+    "janvier": 1, "janv": 1, "février": 2, "fevrier": 2, "févr": 2, "fevr": 2, "mars": 3,
+    "avril": 4, "avr": 4, "mai": 5, "juin": 6, "juillet": 7, "juil": 7, "août": 8, "aout": 8,
+    "septembre": 9, "sept": 9, "octobre": 10, "oct": 10, "novembre": 11, "nov": 11, "décembre": 12, "decembre": 12, "déc": 12, "dec": 12
+}
+
 def strip_accents(text):
     if not isinstance(text, str):
         return ""
@@ -54,14 +60,30 @@ def extract_dept(lieu_str):
 def parse_course_date(d_str):
     if pd.isna(d_str):
         return pd.NaT
-    d_str = str(d_str).strip()
-    match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', d_str)
-    if match:
-        day, month, year = match.groups()
+    d_str = str(d_str).strip().lower()
+    
+    # 1. Format classique JJ/MM/AAAA ou JJ/MM/AA (ex: 12/12/2026 ou 12 & 13/12/2026)
+    match_chiffres = re.findall(r'(\d{1,2})/(\d{1,2})/(\d{2,4})', d_str)
+    if match_chiffres:
+        day, month, year = match_chiffres[-1] # Prend la date de fin en cas d'intervalle
+        year_int = int(year) + 2000 if len(year) == 2 else int(year)
         try:
-            return pd.Timestamp(year=int(year), month=int(month), day=int(day))
+            return pd.Timestamp(year=year_int, month=int(month), day=int(day))
         except Exception:
-            return pd.NaT
+            pass
+            
+    # 2. Format textuel (ex: 12 et 13 décembre 2026)
+    for m_nom, m_num in MOIS_TEXTE.items():
+        if m_nom in d_str:
+            jours = re.findall(r'\b\d{1,2}\b', d_str)
+            annees = re.findall(r'\b20\d{2}\b', d_str)
+            if jours:
+                day_val = int(jours[-1])
+                year_val = int(annees[0]) if annees else 2026
+                try:
+                    return pd.Timestamp(year=year_val, month=m_num, day=day_val)
+                except Exception:
+                    pass
     return pd.NaT
 
 # 1. Configuration de la page
@@ -111,7 +133,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base de coordonnées GPS
+# Base de coordonnées GPS enrichie
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -136,7 +158,8 @@ COORDS_VILLES = {
     "LES HERBIERS": (46.8681, -1.0094), "NANTES": (47.2181, -1.5536), "CHANTONNAY": (46.6881, -1.0506),
     "MONTAIGU": (46.9739, -1.3125), "AIRVAULT": (46.8267, -0.1389), "TALMONT ST HILAIRE": (46.4683, -1.6186),
     "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461), "CROZON": (48.2464, -4.4894),
-    "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114), "MAULEON": (46.9213, -0.7497)
+    "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114), "MAULEON": (46.9213, -0.7497),
+    "LE POIRE SUR VIE": (46.7672, -1.5017), "LE POIRÉ SUR VIE": (46.7672, -1.5017), "LE POIRE-SUR-VIE": (46.7672, -1.5017)
 }
 
 @st.cache_data
@@ -462,7 +485,6 @@ with tab_membre:
 with tab_stats_km:
     col_km_title, col_km_metric = st.columns([2, 1])
     
-    # Filtre pour ne garder que les statuts validés ("Terminé" ou "Finisher")
     mots_valides = ['terminé', 'termine', 'finisher']
     df_finishers = df_participations[df_participations['Statut'].astype(str).str.strip().str.lower().isin(mots_valides)]
     
