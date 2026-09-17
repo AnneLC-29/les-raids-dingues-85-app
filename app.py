@@ -126,7 +126,6 @@ COORDS_VILLES = {
     "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114)
 }
 
-# Géolocalisation intelligente : dictionnaire d'abord, puis recherche dynamique en cache
 @st.cache_data
 def get_coords_smart(lieu_str):
     if not lieu_str or pd.isna(lieu_str):
@@ -180,7 +179,7 @@ liste_courses = df_courses["Nom de la course"].dropna().unique()
 course_url = st.query_params.get("course", None)
 default_idx = list(liste_courses).index(course_url) if course_url and course_url in liste_courses else 0
 
-# --- FILTRAGE STRICT À DATE & AVEC INSCRITS POUR BANDEAU + TAB STATS ---
+# --- FILTRAGE STRICT À DATE & AVEC INSCRITS ---
 today = datetime.now()
 courses_avec_inscrits = df_participations['Nom_Course'].dropna().unique()
 
@@ -513,14 +512,8 @@ with tab_stats_glob:
             else:
                 df_part_course = df_participations_a_date.groupby("Nom_Course").size().reset_index(name="Nombre de participants")
                 
-                df_part_course = df_part_course.merge(
-                    df_courses_a_date[['Nom de la course', 'Date_dt']], 
-                    left_on='Nom_Course', 
-                    right_on='Nom de la course', 
-                    how='left'
-                )
-                
-                df_part_course = df_part_course.sort_values(by=['Date_dt', 'Nombre de participants'], ascending=[True, False])
+                # Tri décroissant du plus grand au plus petit nombre de participants
+                df_part_course = df_part_course.sort_values(by="Nombre de participants", ascending=False)
                 
                 df_part_display = df_part_course.rename(columns={'Nom_Course': 'Manifestation'})[['Manifestation', 'Nombre de participants']]
                 st.dataframe(df_part_display, hide_index=True, use_container_width=True)
