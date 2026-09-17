@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime
+from datetime import datetime, date
 import calendar
 import html
 import folium
@@ -98,7 +98,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base de coordonnées GPS (MAULEON corrigé dans le 79)
+# Base de coordonnées GPS
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -336,30 +336,60 @@ with tab_cal:
     html_code += "</tbody></table></body></html>"
     components.html(html_code, height=680, scrolling=True)
 
-# --- TAB 3 : CARTE INTERACTIVE & PANNEAU DROIT ---
+# --- TAB 3 : CARTE INTERACTIVE & PANNEAU DROIT (AVEC FILTRE DE DATES) ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses & Détails")
     
-    col_c1, col_c2 = st.columns([1, 1])
+    col_c1, col_c2, col_c3 = st.columns([2, 2, 2])
+    
     with col_c1:
         cat_choices = ["Toutes les courses"] + sorted(df_courses['Catégorie'].unique().tolist())
         filtre_type = st.selectbox("🎯 Filtrer par discipline :", cat_choices)
+        
+    # Calcul des bornes de dates pour le sélecteur
+    min_d = df_courses['Date_dt'].min().date() if not df_courses['Date_dt'].dropna().empty else date(2026, 1, 1)
+    max_d = df_courses['Date_dt'].max().date() if not df_courses['Date_dt'].dropna().empty else date(2026, 12, 31)
+    
     with col_c2:
+        plage_dates = st.date_input(
+            "🗓️ Plage de dates :",
+            value=(min_d, max_d),
+            min_value=min_d,
+            max_value=max_d
+        )
+        
+    with col_c3:
         st.write(""); st.write("")
-        filtre_inscrits = st.checkbox("🚩 Afficher uniquement les courses avec des Raids Dingues inscrits", value=False)
+        filtre_inscrits = st.checkbox("🚩 Courses avec Raids Dingues uniquement", value=False)
+        
+    # Gestion sécurisée du retour du composant date_input
+    if isinstance(plage_dates, (tuple, list)) and len(plage_dates) == 2:
+        start_date, end_date = plage_dates[0], plage_dates[1]
+    elif isinstance(plage_dates, (tuple, list)) and len(plage_dates) == 1:
+        start_date = end_date = plage_dates[0]
+    else:
+        start_date, end_date = min_d, max_d
     
     col_map, col_details = st.columns([2, 1])
     
     with col_map:
         m = folium.Map(location=[46.67, -1.42], zoom_start=8, tiles="OpenStreetMap")
         for _, row in df_courses.iterrows():
-            if filtre_type != "Toutes les courses" and row['Catégorie'] != filtre_type: continue
+            if filtre_type != "Toutes les courses" and row['Catégorie'] != filtre_type: 
+                continue
+            
+            # Filtre par plage de dates
+            if pd.notna(row['Date_dt']):
+                course_d = row['Date_dt'].date()
+                if not (start_date <= course_d <= end_date):
+                    continue
             
             nom_c = str(row['Nom de la course'])
             inscrits_df = df_participations[df_participations['Nom_Course'] == nom_c]
             nb_inscrits = len(inscrits_df)
             
-            if filtre_inscrits and nb_inscrits == 0: continue
+            if filtre_inscrits and nb_inscrits == 0: 
+                continue
                 
             lat, lon = get_coords_smart(row['Lieu'])
             if lat and lon:
