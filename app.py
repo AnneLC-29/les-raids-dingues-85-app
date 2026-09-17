@@ -11,7 +11,7 @@ import re
 import unicodedata
 from geopy.geocoders import Nominatim
 
-# Initialisation du géolocaliseur pour les villes absentes du dictionnaire
+# Initialisation du géolocaliseur
 geolocator = Nominatim(user_agent="raids_dingues_app_85")
 
 DEPTS_NAMES = {
@@ -98,7 +98,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base de coordonnées GPS enrichie
+# Base de coordonnées GPS (MAULEON corrigé dans le 79)
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -123,7 +123,7 @@ COORDS_VILLES = {
     "LES HERBIERS": (46.8681, -1.0094), "NANTES": (47.2181, -1.5536), "CHANTONNAY": (46.6881, -1.0506),
     "MONTAIGU": (46.9739, -1.3125), "AIRVAULT": (46.8267, -0.1389), "TALMONT ST HILAIRE": (46.4683, -1.6186),
     "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461), "CROZON": (48.2464, -4.4894),
-    "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114)
+    "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114), "MAULEON": (46.9213, -0.7497)
 }
 
 @st.cache_data
@@ -511,8 +511,6 @@ with tab_stats_glob:
                 st.info("Aucune participation enregistrée à date.")
             else:
                 df_part_course = df_participations_a_date.groupby("Nom_Course").size().reset_index(name="Nombre de participants")
-                
-                # Tri décroissant du plus grand au plus petit nombre de participants
                 df_part_course = df_part_course.sort_values(by="Nombre de participants", ascending=False)
                 
                 df_part_display = df_part_course.rename(columns={'Nom_Course': 'Manifestation'})[['Manifestation', 'Nombre de participants']]
