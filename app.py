@@ -349,7 +349,7 @@ with tab_cal:
     html_code += "</tbody></table></body></html>"
     components.html(html_code, height=680, scrolling=True)
 
-# --- TAB 3 : CARTE INTERACTIVE & PANNEAU DROIT (AVEC FILTRE DE DATES CORRIGÉ) ---
+# --- TAB 3 : CARTE INTERACTIVE & PANNEAU DROIT ---
 with tab_carte:
     st.subheader("🗺️ Localisation des courses & Détails")
     
@@ -390,7 +390,6 @@ with tab_carte:
             if filtre_type != "Toutes les courses" and row['Catégorie'] != filtre_type: 
                 continue
             
-            # Exclusion stricte des dates hors plage ou illisibles
             if pd.isna(row['Date_dt']):
                 continue
                 
@@ -462,17 +461,22 @@ with tab_membre:
 # --- TAB 5 : CLASSEMENT KILOMETRIQUE ---
 with tab_stats_km:
     col_km_title, col_km_metric = st.columns([2, 1])
-    total_km_club = df_participations['Km_Calc'].sum() if not df_participations.empty else 0.0
+    
+    # Filtre pour ne garder que les statuts validés ("Terminé" ou "Finisher")
+    mots_valides = ['terminé', 'termine', 'finisher']
+    df_finishers = df_participations[df_participations['Statut'].astype(str).str.strip().str.lower().isin(mots_valides)]
+    
+    total_km_club = df_finishers['Km_Calc'].sum() if not df_finishers.empty else 0.0
 
     with col_km_title:
         st.subheader("🏆 Classement Kilométrique du Club (2026)")
     with col_km_metric:
-        st.metric("Total kilomètres du club", f"{total_km_club:.1f} km")
+        st.metric("Total kilomètres parcourus", f"{total_km_club:.1f} km")
     
-    if df_participations.empty: 
-        st.info("Aucune donnée disponible pour le classement.")
+    if df_finishers.empty: 
+        st.info("Aucun membre n'a encore le statut 'Terminé' ou 'Finisher'. Les kilomètres ne sont pas encore comptabilisés.")
     else:
-        stats_membres = df_participations.groupby("Nom_Membre").agg(
+        stats_membres = df_finishers.groupby("Nom_Membre").agg(
             Courses_Totales=('Nom_Course', 'count'),
             Km_Parcourus=('Km_Calc', 'sum')
         ).reset_index()
@@ -491,9 +495,9 @@ with tab_stats_km:
         
         stats_display = stats_membres.rename(columns={
             'Nom_Membre': 'Membre',
-            'Courses_Totales': 'Nb Inscriptions',
+            'Courses_Totales': 'Nb Courses Terminées',
             'Km_Parcourus': 'Distance Totale (km)'
-        })[['Membre', 'Sexe', 'Nb Inscriptions', 'Distance Totale (km)']]
+        })[['Membre', 'Sexe', 'Nb Courses Terminées', 'Distance Totale (km)']]
         
         stats_display['Distance Totale (km)'] = stats_display['Distance Totale (km)'].round(1)
         
