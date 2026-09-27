@@ -124,6 +124,14 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
+# Sécurisation des types (Anti-crash PyArrow)[cite: 22]
+for col in df_participations.columns:
+    if col != 'Km_Calc':
+        df_participations[col] = df_participations[col].fillna("").astype(str)
+
+for col in df_courses.columns:
+    df_courses[col] = df_courses[col].fillna("").astype(str)
+
 # Lecture de l'onglet MEMBRES
 df_membres_clean = pd.DataFrame()
 try:
@@ -151,14 +159,8 @@ if rename_cols:
     df_participations = df_participations.rename(columns=rename_cols)
 
 # Normalisation des chaînes & Clé sans ponctuation
-df_courses = df_courses.dropna(subset=["Nom de la course"]).copy()
-df_courses['Nom de la course'] = df_courses['Nom de la course'].astype(str)
-df_courses['Date'] = df_courses['Date'].astype(str)
+df_courses = df_courses[df_courses["Nom de la course"] != ""].copy()
 df_courses['Course_Key'] = df_courses['Nom de la course'].apply(clean_course_key)
-
-df_participations['Nom_Course'] = df_participations['Nom_Course'].astype(str)
-df_participations['Nom_Membre'] = df_participations['Nom_Membre'].astype(str)
-df_participations['Date'] = df_participations['Date'].astype(str)
 df_participations['Course_Key'] = df_participations['Nom_Course'].apply(clean_course_key)
 
 # Conversion intelligente des dates et extraction des départements
@@ -171,7 +173,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base de coordonnées GPS
+# Base de coordonnées GPS (Ajout explicite de SAINTE FOY)
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -198,7 +200,7 @@ COORDS_VILLES = {
     "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461), "CROZON": (48.2464, -4.4894),
     "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114), "MAULEON": (46.9213, -0.7497),
     "LE POIRE SUR VIE": (46.7672, -1.5017), "LE POIRÉ SUR VIE": (46.7672, -1.5017), "LE POIRE-SUR-VIE": (46.7672, -1.5017),
-    "VIX": (46.3631, -0.8542)
+    "VIX": (46.3631, -0.8542), "SAINTE FOY": (46.5372, -1.5647), "STE FOY": (46.5372, -1.5647)
 }
 
 @st.cache_data
@@ -305,7 +307,7 @@ with tab_fiche:
             st.write(f"📍 **Lieu :** {infos['Lieu']}")
             st.write(f"🗓 **Date :** {infos['Date']}")
             st.write(f"🏃 **Type :** {infos['Type de course']} ({infos['Détail']})")
-            if pd.notna(infos['Lien']) and infos['Lien'] != "Clos":
+            if pd.notna(infos['Lien']) and str(infos['Lien']) != "Clos":
                 st.write(f"🔗 [Lien d'inscription]({infos['Lien']})")
         with col2:
             img_col = 'Visuel' if 'Visuel' in infos else ('Lien_Image' if 'Lien_Image' in infos else None)
@@ -324,7 +326,7 @@ with tab_fiche:
             st.info("Aucun Raid Dingue n'est encore inscrit. Sois le premier !")
         else:
             disp_cols = [c for c in ["Nom_Membre", "Distance", "Statut", "Resultat"] if c in inscrits.columns]
-            st.dataframe(inscrits[disp_cols], hide_index=True)
+            st.dataframe(inscrits[disp_cols].astype(str), hide_index=True)
             
         st.divider()
         st.subheader("✍️ M'inscrire à cette course")
@@ -335,8 +337,8 @@ with tab_fiche:
             
             if submit and nom:
                 nouvelle_inscription = pd.DataFrame([{
-                    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"), "Date": infos['Date'], "Lieu": infos['Lieu'],            
-                    "Nom_Membre": nom, "Nom_Course": course_choisie, "Distance": distance, "Statut": "Inscrit", "Resultat": ""
+                    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"), "Date": str(infos['Date']), "Lieu": str(infos['Lieu']),            
+                    "Nom_Membre": str(nom), "Nom_Course": str(course_choisie), "Distance": str(distance), "Statut": "Inscrit", "Resultat": ""
                 }])
                 df_updated = pd.concat([df_participations, nouvelle_inscription], ignore_index=True)
                 cols_to_drop = [c for c in ['Km_Calc', 'Course_Key'] if c in df_updated.columns]
@@ -434,12 +436,7 @@ with tab_carte:
     max_d = dates_valides.max().date() if not dates_valides.empty else date(2026, 12, 31)
     
     with col_c2:
-        plage_dates = st.date_input(
-            "🗓️ Plage de dates :",
-            value=(min_d, max_d),
-            min_value=min_d,
-            max_value=max_d
-        )
+        plage_dates = st.date_input("🗓️ Plage de dates :", value=(min_d, max_d), min_value=min_d, max_value=max_d)
         
     with col_c3:
         st.write(""); st.write("")
@@ -457,15 +454,11 @@ with tab_carte:
     with col_map:
         m = folium.Map(location=[46.67, -1.42], zoom_start=8, tiles="OpenStreetMap")
         for _, row in df_courses.iterrows():
-            if filtre_type != "Toutes les courses" and row['Catégorie'] != filtre_type: 
-                continue
-            
-            if pd.isna(row['Date_dt']):
-                continue
+            if filtre_type != "Toutes les courses" and row['Catégorie'] != filtre_type: continue
+            if pd.isna(row['Date_dt']): continue
                 
             course_d = row['Date_dt'].date()
-            if not (start_date <= course_d <= end_date):
-                continue
+            if not (start_date <= course_d <= end_date): continue
             
             nom_c = str(row['Nom de la course'])
             c_key = str(row['Course_Key'])
@@ -473,8 +466,7 @@ with tab_carte:
             inscrits_df = df_participations[df_participations['Course_Key'] == c_key]
             nb_inscrits = len(inscrits_df)
             
-            if filtre_inscrits and nb_inscrits == 0: 
-                continue
+            if filtre_inscrits and nb_inscrits == 0: continue
                 
             lat, lon = get_coords_smart(row['Lieu'])
             if lat and lon:
@@ -512,7 +504,7 @@ with tab_carte:
                 st.success(f"👥 {len(inscrits_course)} participant(s)")
                 inscrits_course = inscrits_course.sort_values(by="Km_Calc", ascending=False)
                 disp_cols_c = [c for c in ["Nom_Membre", "Distance", "Resultat"] if c in inscrits_course.columns]
-                st.dataframe(inscrits_course[disp_cols_c], hide_index=True, use_container_width=True)
+                st.dataframe(inscrits_course[disp_cols_c].astype(str), hide_index=True, use_container_width=True)
 
 # --- TAB 4 : FICHE MEMBRE ET SUIVI ---
 with tab_membre:
@@ -550,8 +542,13 @@ with tab_membre:
                 st.metric("Total d'inscriptions 2026", len(p_membre))
                 details_membre = p_membre.merge(df_courses[["Course_Key", "Type de course"]].drop_duplicates(), on="Course_Key", how="left")
                 
+                # Conversion du résultat avec emojis
                 details_membre['Resultat'] = details_membre['Resultat'].apply(format_resultat_avec_emoji)
                 disp_cols_m = [c for c in ["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"] if c in details_membre.columns]
+                
+                # Forcer le typage en string pour PyArrow
+                for col in disp_cols_m:
+                    details_membre[col] = details_membre[col].fillna("").astype(str)
                 
                 def style_rank_rows(row):
                     rank = get_rank_number(row.get('Resultat', ''))
@@ -712,7 +709,6 @@ with tab_stats_glob:
                     use_container_width=True
                 )
 
-            # --- NOUVEAUTÉ : CARTE DES DÉPARTEMENTS VISITÉS ---
             st.write("#### 🗺️ Carte des départements visités")
             try:
                 geojson_url = "https://raw.githubusercontent.com/gregoiredA/france-geojson/master/departements-version-simplifiee.geojson"
@@ -743,5 +739,5 @@ with tab_stats_glob:
                 ).add_to(m_depts)
                 
                 st_folium(m_depts, width="100%", height=380, key="map_depts_visited")
-            except Exception as e:
+            except Exception:
                 st.info("Chargement de la carte des départements...")
