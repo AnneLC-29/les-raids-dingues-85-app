@@ -11,6 +11,7 @@ import re
 import unicodedata
 import os
 import glob
+import random
 from geopy.geocoders import Nominatim
 
 # Initialisation du géolocaliseur
@@ -144,7 +145,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Sécurisation des types
+# Sécurisation des types (Anti-crash PyArrow)
 for col in df_participations.columns:
     if col != 'Km_Calc':
         df_participations[col] = df_participations[col].fillna("").astype(str)
@@ -193,7 +194,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base de coordonnées GPS (Ajout de COURS 79 & VIEILLE AURE 65)
+# Base complète de coordonnées GPS (avec VIEILLE AURE, COURS, SAINTE FOY, etc.)
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -304,7 +305,7 @@ with col_k1:
 with col_k2:
     st.metric("✍️ Inscriptions à date", kpi_inscriptions)
 with col_k3:
-    st.metric("🗺️️ Départements parcourus à date", kpi_depts)
+    st.metric("🗺️ Départements parcourus à date", kpi_depts)
 
 st.divider()
 
@@ -446,7 +447,7 @@ with tab_cal:
 
 # --- TAB 3 : CARTE INTERACTIVE & PANNEAU DROIT ---
 with tab_carte:
-    st.subheader("🗺️ Localisation des courses & Détails")
+    st.subheader("🗺️️ Localisation des courses & Détails")
     
     col_c1, col_c2, col_c3 = st.columns([2, 2, 2])
     
@@ -493,6 +494,11 @@ with tab_carte:
                 
             lat, lon = get_coords_smart(row['Lieu'])
             if lat and lon:
+                # Léger décalage aléatoire pour éviter que deux marqueurs exactement au même endroit se masquent
+                rng = random.Random(nom_c)
+                lat += rng.uniform(-0.005, 0.005)
+                lon += rng.uniform(-0.005, 0.005)
+
                 icon_color = "red" if nb_inscrits > 0 else "blue"
                 icon_name, icon_prefix = get_icon_details(row['Catégorie'])
                 
