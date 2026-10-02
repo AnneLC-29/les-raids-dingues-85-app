@@ -16,6 +16,20 @@ from geopy.geocoders import Nominatim
 # Initialisation du géolocaliseur
 geolocator = Nominatim(user_agent="raids_dingues_app_85")
 
+# Compteur de visiteurs uniques (IP)
+@st.cache_resource
+def get_ip_tracker():
+    return set()
+
+ip_set = get_ip_tracker()
+try:
+    headers = st.context.headers
+    ip_client = headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    if ip_client:
+        ip_set.add(ip_client)
+except Exception:
+    pass
+
 DEPTS_NAMES = {
     "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence", "05": "Hautes-Alpes",
     "06": "Alpes-Maritimes", "07": "Ardèche", "08": "Ardennes", "09": "Ariège", "10": "Aube",
@@ -115,6 +129,12 @@ def format_resultat_avec_emoji(res_str):
 
 # 1. Configuration de la page
 st.set_page_config(page_title="Raids Dingues 85", page_icon="🏃‍♂️", layout="wide")
+
+# Affichage du compteur dans la barre latérale
+st.sidebar.title("📊 Statistiques")
+st.sidebar.metric("🌐 Visiteurs uniques (IP)", len(ip_set))
+st.sidebar.divider()
+
 st.title("🏃‍♂️ Raids Dingues 85")
 st.write("Saison 2026 — Calendrier, Carte & Suivi des membres")
 
@@ -124,7 +144,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 df_courses = conn.read(worksheet="BDD 2026", header=5, ttl=10)
 df_participations = conn.read(worksheet="PARTICIPATIONS", ttl=10)
 
-# Sécurisation des types (Anti-crash PyArrow)[cite: 22]
+# Sécurisation des types
 for col in df_participations.columns:
     if col != 'Km_Calc':
         df_participations[col] = df_participations[col].fillna("").astype(str)
@@ -173,7 +193,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base de coordonnées GPS (Ajout explicite de SAINTE FOY)
+# Base de coordonnées GPS (Ajout de COURS 79 & VIEILLE AURE 65)
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -200,7 +220,10 @@ COORDS_VILLES = {
     "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461), "CROZON": (48.2464, -4.4894),
     "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114), "MAULEON": (46.9213, -0.7497),
     "LE POIRE SUR VIE": (46.7672, -1.5017), "LE POIRÉ SUR VIE": (46.7672, -1.5017), "LE POIRE-SUR-VIE": (46.7672, -1.5017),
-    "VIX": (46.3631, -0.8542), "SAINTE FOY": (46.5372, -1.5647), "STE FOY": (46.5372, -1.5647)
+    "VIX": (46.3631, -0.8542), "SAINTE FOY": (46.5372, -1.5647), "STE FOY": (46.5372, -1.5647),
+    "COURS": (46.7328, -0.4967), "COURS (79)": (46.7328, -0.4967),
+    "VIEILLE AURE": (42.8286, 0.3242), "VIEILLE-AURE": (42.8286, 0.3242),
+    "VIELLE AURE": (42.8286, 0.3242), "VIELLE-AURE": (42.8286, 0.3242)
 }
 
 @st.cache_data
@@ -281,7 +304,7 @@ with col_k1:
 with col_k2:
     st.metric("✍️ Inscriptions à date", kpi_inscriptions)
 with col_k3:
-    st.metric("🗺️ Départements parcourus à date", kpi_depts)
+    st.metric("🗺️️ Départements parcourus à date", kpi_depts)
 
 st.divider()
 
