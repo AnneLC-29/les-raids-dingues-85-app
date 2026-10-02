@@ -12,6 +12,7 @@ import unicodedata
 import os
 import glob
 import random
+import requests
 from geopy.geocoders import Nominatim
 
 # Initialisation du géolocaliseur
@@ -30,6 +31,18 @@ try:
         ip_set.add(ip_client)
 except Exception:
     pass
+
+# Chargement sécurisé du GeoJSON des départements
+@st.cache_data(ttl=3600)
+def load_geojson_depts():
+    url = "https://raw.githubusercontent.com/gregoiredA/france-geojson/master/departements-version-simplifiee.geojson"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        pass
+    return None
 
 DEPTS_NAMES = {
     "01": "Ain", "02": "Aisne", "03": "Allier", "04": "Alpes-de-Haute-Provence", "05": "Hautes-Alpes",
@@ -194,7 +207,7 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base complète de coordonnées GPS (avec VIEILLE AURE, COURS, SAINTE FOY, etc.)
+# Base complète de coordonnées GPS
 COORDS_VILLES = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
@@ -447,7 +460,7 @@ with tab_cal:
 
 # --- TAB 3 : CARTE INTERACTIVE & PANNEAU DROIT ---
 with tab_carte:
-    st.subheader("🗺️️ Localisation des courses & Détails")
+    st.subheader("🗺️ Localisation des courses & Détails")
     
     col_c1, col_c2, col_c3 = st.columns([2, 2, 2])
     
@@ -494,7 +507,7 @@ with tab_carte:
                 
             lat, lon = get_coords_smart(row['Lieu'])
             if lat and lon:
-                # Léger décalage aléatoire pour éviter que deux marqueurs exactement au même endroit se masquent
+                # Décalage léger et reproductible pour séparer les marqueurs homonymes
                 rng = random.Random(nom_c)
                 lat += rng.uniform(-0.005, 0.005)
                 lon += rng.uniform(-0.005, 0.005)
@@ -510,7 +523,7 @@ with tab_carte:
                     icon=folium.Icon(color=icon_color, icon=icon_name, prefix=icon_prefix)
                 ).add_to(m)
                 
-        map_data = st_folium(m, width="100%", height=600, returned_objects=["last_object_clicked_tooltip"])
+        map_data = st_folium(m, width="100%", height=600, key="map_courses_main", returned_objects=["last_object_clicked_tooltip"])
     
     with col_details:
         st.write("### 📜 Palmarès de la course")
@@ -739,34 +752,39 @@ with tab_stats_glob:
                 )
 
             st.write("#### 🗺️ Carte des départements visités")
-            try:
-                geojson_url = "https://raw.githubusercontent.com/gregoiredA/france-geojson/master/departements-version-simplifiee.geojson"
-                
-                m_depts = folium.Map(location=[46.5, 2.0], zoom_start=5, tiles="OpenStreetMap")
-                depts_visites = df_depts['Code_Dept'].astype(str).str.zfill(2).tolist()
-                
-                def style_depts(feature):
-                    code = str(feature['properties']['code']).zfill(2)
-                    if code in depts_visites:
+            geojson_data = load_geojson_depts()
+            
+            if geojson_data and not df_depts.empty:
+                try:
+                    m_depts = folium.Map(location=[46.5, 2.0], zoom_start=5, tiles="OpenStreetMap")
+                    
+                    # Normalisation des codes départements (ex: "85", "09", "2A")
+                    depts_visites = set(df_depts['Code_Dept'].dropna().astype(str).str.zfill(2).tolist())
+                    
+                    def style_depts(feature):
+                        code_prop = str(feature['properties'].get('code', feature['properties'].get('code_dept', ''))).zfill(2)
+                        if code_prop in depts_visites:
+                            return {
+                                'fillColor': '#2563eb',
+                                'color': '#1e40af',
+                                'weight': 1.5,
+                                'fillOpacity': 0.65
+                            }
                         return {
-                            'fillColor': '#2563eb',
-                            'color': '#1e40af',
-                            'weight': 1.5,
-                            'fillOpacity': 0.6
+                            'fillColor': '#f1f5f9',
+                            'color': '#cbd5e1',
+                            'weight': 0.5,
+                            'fillOpacity': 0.2
                         }
-                    return {
-                        'fillColor': '#f1f5f9',
-                        'color': '#cbd5e1',
-                        'weight': 0.5,
-                        'fillOpacity': 0.2
-                    }
-                
-                folium.GeoJson(
-                    geojson_url,
-                    style_function=style_depts,
-                    tooltip=folium.GeoJsonTooltip(fields=['code', 'nom'], aliases=['Dept:', 'Nom:'])
-                ).add_to(m_depts)
-                
-                st_folium(m_depts, width="100%", height=380, key="map_depts_visited")
-            except Exception:
-                st.info("Chargement de la carte des départements...")
+                    
+                    folium.GeoJson(
+                        geojson_data,
+                        style_function=style_depts,
+                        tooltip=folium.GeoJsonTooltip(fields=['code', 'nom'], aliases=['Dept:', 'Nom:'])
+                    ).add_to(m_depts)
+                    
+                    st_folium(m_depts, width="100%", height=380, key="map_depts_visited")
+                except Exception:
+                    st.warning("Impossible d'afficher la carte des départements pour le moment.")
+            else:
+                st.info("Données de départements indisponibles pour la carte.")
