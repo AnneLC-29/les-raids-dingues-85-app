@@ -87,6 +87,15 @@ def clean_course_key(text):
     text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
     return re.sub(r'[^a-zA-Z0-9]', '', text).upper()
 
+def normalize_lieu(lieu):
+    if not lieu or pd.isna(lieu):
+        return ""
+    text = str(lieu).split('(')[0]
+    text = text.replace('\xa0', ' ').replace('-', ' ')
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    return re.sub(r'\s+', ' ', text).strip().upper()
+
 def extract_dept(lieu_str):
     if pd.isna(lieu_str):
         return None
@@ -207,8 +216,8 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base complète de coordonnées GPS
-COORDS_VILLES = {
+# Base complète de coordonnées GPS (Clés normalisées universelles)
+COORDS_VILLES_RAW = {
     "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
     "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
     "ST LAURENT SUR SEVRE": (46.9583, -0.8931), "PARIS": (48.8566, 2.3522), "LUCS SUR BOULOGNE": (46.8439, -1.4939),
@@ -225,7 +234,7 @@ COORDS_VILLES = {
     "ST MARTIN DES NOYERS": (46.7239, -1.1783), "LONGEVILLE SUR MER": (46.4239, -1.4889),
     "LA GAUBRETIERE": (46.9458, -1.0664), "BEAULIEU SOUS LA ROCHE": (46.6764, -1.6094), "SAUMUR": (47.2603, -0.0769),
     "L'OIE": (46.7981, -1.1325), "ST HILAIRE DE RIEZ": (46.7214, -1.9453), "POUZAUGES": (46.7833, -0.8333),
-    "VENAUSAULT": (46.6858, -1.5125), "NIORT": (46.3237, -0.4648), "LUCON": (46.4550, -1.1664),
+    "VENAUSAULT": (46.6858, -1.5125), "VENANSAULT": (46.6858, -1.5125), "NIORT": (46.3237, -0.4648), "LUCON": (46.4550, -1.1664),
     "LA TRANCHE / MER": (46.3439, -1.4389), "LA TRANCHE SUR MER": (46.3439, -1.4389), "NOIRMOUTIER": (47.0003, -2.2417),
     "LES SABLES D'OLONNES": (46.4972, -1.7833), "LES SABLES D'OLONNE": (46.4972, -1.7833), "PARTHENAY": (46.6486, -0.2483),
     "LA ROCHE SUR YON": (46.6705, -1.4265), "CHATELAILLON-PLAGE": (46.0728, -1.0881), "CHATELAILLON": (46.0728, -1.0881),
@@ -233,26 +242,28 @@ COORDS_VILLES = {
     "MONTAIGU": (46.9739, -1.3125), "AIRVAULT": (46.8267, -0.1389), "TALMONT ST HILAIRE": (46.4683, -1.6186),
     "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461), "CROZON": (48.2464, -4.4894),
     "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114), "MAULEON": (46.9213, -0.7497),
-    "LE POIRE SUR VIE": (46.7672, -1.5017), "LE POIRÉ SUR VIE": (46.7672, -1.5017), "LE POIRE-SUR-VIE": (46.7672, -1.5017),
-    "VIX": (46.3631, -0.8542), "SAINTE FOY": (46.5372, -1.5647), "STE FOY": (46.5372, -1.5647),
-    "COURS": (46.7328, -0.4967), "COURS (79)": (46.7328, -0.4967),
-    "VIEILLE AURE": (42.8286, 0.3242), "VIEILLE-AURE": (42.8286, 0.3242),
-    "VIELLE AURE": (42.8286, 0.3242), "VIELLE-AURE": (42.8286, 0.3242)
+    "LE POIRE SUR VIE": (46.7672, -1.5017), "VIX": (46.3631, -0.8542), "SAINTE FOY": (46.5372, -1.5647),
+    "STE FOY": (46.5372, -1.5647), "COURS": (46.7328, -0.4967), "VIEILLE AURE": (42.8286, 0.3242),
+    "VIELLE AURE": (42.8286, 0.3242), "LAVELANET": (42.9300, 1.8492), "CHEFFOIS": (46.6692, -0.7892),
+    "FUTUROSCOPE": (46.6700, 0.3600), "SAINT MALO": (48.6493, -2.0257), "BARBATRE": (46.9450, -2.1810)
 }
 
+COORDS_VILLES = {normalize_lieu(k): v for k, v in COORDS_VILLES_RAW.items()}
+
 @st.cache_data
-def get_coords_smart(lieu_str):
+def get_coords_v2(lieu_str):
     if not lieu_str or pd.isna(lieu_str):
         return None, None
     
-    ville = str(lieu_str).split('(')[0].strip().upper()
-    if ville in COORDS_VILLES:
-        return COORDS_VILLES[ville]
+    key = normalize_lieu(lieu_str)
+    if key in COORDS_VILLES:
+        return COORDS_VILLES[key]
     
     try:
         match = re.search(r"\((.*?)\)", str(lieu_str))
         dept = match.group(1) if match else ""
-        query = f"{ville} {dept}, France" if dept else f"{ville}, France"
+        ville_clean = str(lieu_str).split('(')[0].replace('\xa0', ' ').strip()
+        query = f"{ville_clean} {dept}, France" if dept else f"{ville_clean}, France"
         loc = geolocator.geocode(query, timeout=4)
         if loc:
             return loc.latitude, loc.longitude
@@ -505,9 +516,8 @@ with tab_carte:
             
             if filtre_inscrits and nb_inscrits == 0: continue
                 
-            lat, lon = get_coords_smart(row['Lieu'])
+            lat, lon = get_coords_v2(row['Lieu'])
             if lat and lon:
-                # Décalage léger et reproductible pour séparer les marqueurs homonymes
                 rng = random.Random(nom_c)
                 lat += rng.uniform(-0.005, 0.005)
                 lon += rng.uniform(-0.005, 0.005)
@@ -523,7 +533,7 @@ with tab_carte:
                     icon=folium.Icon(color=icon_color, icon=icon_name, prefix=icon_prefix)
                 ).add_to(m)
                 
-        map_data = st_folium(m, width="100%", height=600, key="map_courses_main", returned_objects=["last_object_clicked_tooltip"])
+        map_data = st_folium(m, width="100%", height=600, key="map_courses_v2", returned_objects=["last_object_clicked_tooltip"])
     
     with col_details:
         st.write("### 📜 Palmarès de la course")
@@ -584,11 +594,9 @@ with tab_membre:
                 st.metric("Total d'inscriptions 2026", len(p_membre))
                 details_membre = p_membre.merge(df_courses[["Course_Key", "Type de course"]].drop_duplicates(), on="Course_Key", how="left")
                 
-                # Conversion du résultat avec emojis
                 details_membre['Resultat'] = details_membre['Resultat'].apply(format_resultat_avec_emoji)
                 disp_cols_m = [c for c in ["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"] if c in details_membre.columns]
                 
-                # Forcer le typage en string pour PyArrow
                 for col in disp_cols_m:
                     details_membre[col] = details_membre[col].fillna("").astype(str)
                 
@@ -758,7 +766,7 @@ with tab_stats_glob:
                 try:
                     m_depts = folium.Map(location=[46.5, 2.0], zoom_start=5, tiles="OpenStreetMap")
                     
-                    # Normalisation des codes départements (ex: "85", "09", "2A")
+                    # Normalisation propre des codes de département (ex: '09', '65', '85')
                     depts_visites = set(df_depts['Code_Dept'].dropna().astype(str).str.zfill(2).tolist())
                     
                     def style_depts(feature):
@@ -783,8 +791,8 @@ with tab_stats_glob:
                         tooltip=folium.GeoJsonTooltip(fields=['code', 'nom'], aliases=['Dept:', 'Nom:'])
                     ).add_to(m_depts)
                     
-                    st_folium(m_depts, width="100%", height=380, key="map_depts_visited")
+                    st_folium(m_depts, width="100%", height=380, key="map_depts_visited_v2")
                 except Exception:
-                    st.warning("Impossible d'afficher la carte des départements pour le moment.")
+                    st.warning("Impossible d'afficher la carte des départements.")
             else:
                 st.info("Données de départements indisponibles pour la carte.")
