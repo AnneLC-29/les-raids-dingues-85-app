@@ -780,33 +780,32 @@ with tab_membre:
     if not membres_dispos: 
         st.info("Aucun membre disponible.")
     else:
-        col_sel, col_pic = st.columns([3, 1])
+        col_sel, col_pic = st.columns([2.5, 1.2])
         with col_sel:
             membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_dispos)
         
         if membre_choisi:
+            # 1. Recherche du fichier image (dossier photos/ ou racine)
             photo_path = None
             m_clean = strip_accents(membre_choisi)
             prenom_seul = m_clean.split()[-1] if len(m_clean.split()) > 1 else m_clean
             nom_seul = m_clean.split()[0] if len(m_clean.split()) > 1 else m_clean
             
-            # Recherche dans le dossier photos/ ET à la racine du dépôt
-            fichiers_images = glob.glob("photos/*") + glob.glob("*.png") + glob.glob("*.jpg") + glob.glob("*.jpeg")
+            fichiers_candidats = (
+                glob.glob("photos/*.png") + glob.glob("photos/*.jpg") + glob.glob("photos/*.jpeg") +
+                glob.glob("*.png") + glob.glob("*.jpg") + glob.glob("*.jpeg")
+            )
             
-            for f in fichiers_images:
+            for f in fichiers_candidats:
                 f_clean = strip_accents(os.path.basename(f))
-                # Vérifie le nom complet, le prénom seul ou le nom seul
-                if m_clean in f_clean or (prenom_seul and prenom_seul in f_clean) or (nom_seul and nom_seul in f_clean):
+                if m_clean in f_clean or (len(prenom_seul) > 2 and prenom_seul in f_clean) or (len(nom_seul) > 2 and nom_seul in f_clean):
                     photo_path = f
                     break
             
+            # 2. Affichage unique et agrandi
             with col_pic:
                 if photo_path:
-                    st.image(photo_path, width=130, caption=membre_choisi)
-            
-            with col_pic:
-                if photo_path:
-                    st.image(photo_path, width=130, caption=membre_choisi)
+                    st.image(photo_path, width=240)
                 
             p_membre = df_participations[df_participations["Nom_Membre"].apply(strip_accents) == strip_accents(membre_choisi)] if not df_participations.empty else pd.DataFrame()
             
