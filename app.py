@@ -786,15 +786,23 @@ with tab_membre:
         
         if membre_choisi:
             photo_path = None
-            if os.path.exists("photos"):
-                m_clean = strip_accents(membre_choisi)
-                prenom_seul = m_clean.split()[-1] if len(m_clean.split()) > 1 else m_clean
-                
-                for f in glob.glob("photos/*"):
-                    f_clean = strip_accents(os.path.basename(f))
-                    if m_clean in f_clean or prenom_seul in f_clean:
-                        photo_path = f
-                        break
+            m_clean = strip_accents(membre_choisi)
+            prenom_seul = m_clean.split()[-1] if len(m_clean.split()) > 1 else m_clean
+            nom_seul = m_clean.split()[0] if len(m_clean.split()) > 1 else m_clean
+            
+            # Recherche dans le dossier photos/ ET à la racine du dépôt
+            fichiers_images = glob.glob("photos/*") + glob.glob("*.png") + glob.glob("*.jpg") + glob.glob("*.jpeg")
+            
+            for f in fichiers_images:
+                f_clean = strip_accents(os.path.basename(f))
+                # Vérifie le nom complet, le prénom seul ou le nom seul
+                if m_clean in f_clean or (prenom_seul and prenom_seul in f_clean) or (nom_seul and nom_seul in f_clean):
+                    photo_path = f
+                    break
+            
+            with col_pic:
+                if photo_path:
+                    st.image(photo_path, width=130, caption=membre_choisi)
             
             with col_pic:
                 if photo_path:
