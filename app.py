@@ -540,6 +540,8 @@ with tab_agenda:
             else:
                 rebours = f"Dans {days_diff} j"
 
+            lbl_encoded = urllib.parse.quote(str(c_row['Label_Unique']))
+
             agenda_rows.append({
                 "Date": c_row['Date'],
                 "Échéance": rebours,
@@ -547,11 +549,15 @@ with tab_agenda:
                 "Lieu": c_row['Lieu'],
                 "Discipline": c_row['Catégorie'],
                 "Inscrits RD": nb,
-                "Participants & Distances": ", ".join(details_list)
+                "Participants & Distances": ", ".join(details_list),
+                "Inscription": f"/?course={lbl_encoded}",
+                "Label_Unique": c_row['Label_Unique'],
+                "Course_Key": c_key,
+                "Annee": annee
             })
 
     if not agenda_rows:
-        st.info("Aucune course à venir avec des membres inscrits pour le moment. Inscris-toi dans l'onglet **Fiche & Inscription** !")
+        st.info("Aucune course à venir avec des membres inscrits pour le moment. Sois le premier à t'inscrire dans l'onglet **Fiche & Inscription** !")
     else:
         df_agenda = pd.DataFrame(agenda_rows)
         
@@ -564,12 +570,69 @@ with tab_agenda:
             prochaine = df_agenda.iloc[0]
             st.metric("Prochain départ", prochaine['Échéance'], prochaine['Nom de la course'])
 
+        # Tableau avec colonne d'accès direct
         st.dataframe(
-            df_agenda[["Date", "Échéance", "Nom de la course", "Lieu", "Discipline", "Inscrits RD", "Participants & Distances"]],
+            df_agenda[[
+                "Date", "Échéance", "Nom de la course", "Lieu", 
+                "Discipline", "Inscrits RD", "Participants & Distances", "Inscription"
+            ]],
+            column_config={
+                "Inscription": st.column_config.LinkColumn(
+                    "Rejoindre",
+                    display_text="✍️ M'inscrire"
+                )
+            },
             hide_index=True,
             use_container_width=True
         )
 
+        st.divider()
+
+        # Formulaire express directement sur place
+        st.markdown("#### ⚡ Inscription express sans changer d'onglet")
+        with st.expander("👉 Clique ici pour t'inscrire rapidement à l'une de ces sorties", expanded=False):
+            col_f1, col_f2 = st.columns([2, 1])
+            with col_f1:
+                course_ag_choisie = st.selectbox(
+                    "Sélectionne la course :", 
+                    df_agenda["Label_Unique"].tolist(),
+                    key="sel_course_agenda"
+                )
+            
+            with col_f2:
+                membre_ag_choisi = st.selectbox(
+                    "Ton nom / prénom :", 
+                    liste_membres,
+                    key="sel_membre_agenda"
+                ) if liste_membres else st.text_input("Ton prénom et nom :", key="txt_membre_agenda")
+            
+            col_d1, col_d2 = st.columns([2, 1])
+            with col_d1:
+                dist_ag = st.text_input("Distance choisie (ex : 15 km, 24 km...) :", key="dist_agenda")
+            with col_d2:
+                st.write("")
+                st.write("")
+                btn_ag_submit = st.button("Valider mon inscription !", key="btn_agenda_submit", use_container_width=True)
+
+            if btn_ag_submit and course_ag_choisie and membre_ag_choisi:
+                infos_c = df_courses[df_courses["Label_Unique"] == course_ag_choisie].iloc[0]
+                nouvelle_inscription = pd.DataFrame([{
+                    "Horodatage": datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    "Date": str(infos_c['Date']),
+                    "Lieu": str(infos_c['Lieu']),
+                    "Nom_Membre": str(membre_ag_choisi),
+                    "Nom_Course": str(infos_c['Nom de la course']),
+                    "Distance": str(dist_ag),
+                    "Statut": "Inscrit",
+                    "Resultat": ""
+                }])
+                df_updated = pd.concat([df_participations_raw, nouvelle_inscription], ignore_index=True)
+                cols_to_drop = [c for c in ['Km_Calc', 'Course_Key', 'Date_dt', 'Annee'] if c in df_updated.columns]
+                if cols_to_drop:
+                    df_updated = df_updated.drop(columns=cols_to_drop)
+                conn.update(worksheet="PARTICIPATIONS", data=df_updated)
+                st.success(f"Bravo {membre_ag_choisi} ! Ton inscription à **{infos_c['Nom de la course']}** a été enregistrée avec succès.")
+                st.rerun()
 # --- TAB 2 : CALENDRIER VISUEL ---
 with tab_cal:
     st.subheader(f"📅 Vue Calendrier Mensuel ({titre_annees})")
