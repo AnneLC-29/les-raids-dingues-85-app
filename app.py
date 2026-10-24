@@ -780,12 +780,12 @@ with tab_membre:
     if not membres_dispos: 
         st.info("Aucun membre disponible.")
     else:
-        col_sel, col_pic = st.columns([2.5, 1.2])
+        # Répartition ajustée pour laisser davantage d'espace au visuel
+        col_sel, col_pic = st.columns([2, 1.4])
         with col_sel:
             membre_choisi = st.selectbox("Sélectionner un membre des Raids Dingues :", membres_dispos)
         
         if membre_choisi:
-            # 1. Recherche du fichier image (dossier photos/ ou racine)
             photo_path = None
             m_clean = strip_accents(membre_choisi)
             prenom_seul = m_clean.split()[-1] if len(m_clean.split()) > 1 else m_clean
@@ -802,10 +802,9 @@ with tab_membre:
                     photo_path = f
                     break
             
-            # 2. Affichage unique et agrandi
             with col_pic:
                 if photo_path:
-                    st.image(photo_path, width=240)
+                    st.image(photo_path, width=380)
                 
             p_membre = df_participations[df_participations["Nom_Membre"].apply(strip_accents) == strip_accents(membre_choisi)] if not df_participations.empty else pd.DataFrame()
             
