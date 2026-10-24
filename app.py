@@ -108,7 +108,7 @@ def normalize_lieu(lieu):
 def extract_dept(lieu_str):
     if pd.isna(lieu_str):
         return None
-    match = re.search(r'\((\d{2,3}\vert{}2A\vert{}2B)\)', str(lieu_str))
+    match = re.search(r'\((\d{2,3}|2A|2B)\)', str(lieu_str))
     return match.group(1) if match else None
 
 def parse_course_date(d_str):
@@ -458,7 +458,16 @@ with tab_fiche:
                 st.write(f"🏃 **Type :** {infos['Type de course']} ({infos['Détail']})")
                 
                 lien_raw = str(infos.get('Lien', '')).strip()
-                match_lien = re.search(r'https?://[^\s\)\(\"\']+', lien_raw) if match_lien: st.write(f"🔗 [Lien d'inscription]({match_lien.group(0)})") elif lien_raw and lien_raw.lower() not in ["clos", "nan", "none", "lien d'inscription"]: st.write(f"🔗 **Lien :** {lien_raw}") with col2: img_col = 'Visuel' if 'Visuel' in infos else ('Lien_Image' if 'Lien_Image' in infos else None) if img_col and pd.notna(infos[img_col]): raw_img = str(infos[img_col]).strip() match_img_url = re.search(r'https?://[^\s\)\(\"\']+', raw_img)
+                match_lien = re.search(r'https?://[^\s\)\(\"\']+', lien_raw)
+                if match_lien:
+                    st.write(f"🔗 [Lien d'inscription]({match_lien.group(0)})")
+                elif lien_raw and lien_raw.lower() not in ["clos", "nan", "none", "lien d'inscription"]:
+                    st.write(f"🔗 **Lien :** {lien_raw}")
+            with col2:
+                img_col = 'Visuel' if 'Visuel' in infos else ('Lien_Image' if 'Lien_Image' in infos else None)
+                if img_col and pd.notna(infos[img_col]):
+                    raw_img = str(infos[img_col]).strip()
+                    match_img_url = re.search(r'https?://[^\s\)\(\"\']+', raw_img)
                     if match_img_url:
                         st.image(match_img_url.group(0), width=300)
 
@@ -986,4 +995,54 @@ with tab_stats_glob:
                 
                 df_part_course = df_part_course.sort_values(by="Nb_Participants", ascending=False)
                 
-                df_part_display =
+                df_part_display = df_part_course.rename(columns={
+                    'Nom_Course': 'Manifestation',
+                    'Nb_Participants': 'Nombre de participants',
+                    'Total_Km': 'Km réalisés (Finishers)'
+                })[['Manifestation', 'Nombre de participants', 'Km réalisés (Finishers)']]
+                
+                st.dataframe(
+                    df_part_display.style.format({'Km réalisés (Finishers)': '{:.1f} km'}), 
+                    hide_index=True, 
+                    use_container_width=True
+                )
+
+            st.write("#### 🗺️ Carte des départements visités")
+            geojson_data = None
+            try:
+                geojson_data = load_geojson_depts()
+            except Exception:
+                geojson_data = None
+            
+            if geojson_data and not df_depts.empty:
+                try:
+                    m_depts = folium.Map(location=[46.5, 2.0], zoom_start=5, tiles="OpenStreetMap")
+                    depts_visites = set(df_depts['Code_Dept'].dropna().astype(str).str.zfill(2).tolist())
+                    
+                    def style_depts(feature):
+                        code_prop = str(feature['properties'].get('code', feature['properties'].get('code_dept', ''))).strip().zfill(2)
+                        if code_prop in depts_visites:
+                            return {
+                                'fillColor': '#2563eb',
+                                'color': '#1d4ed8',
+                                'weight': 1.5,
+                                'fillOpacity': 0.65
+                            }
+                        return {
+                            'fillColor': '#f1f5f9',
+                            'color': '#cbd5e1',
+                            'weight': 0.5,
+                            'fillOpacity': 0.2
+                        }
+                    
+                    folium.GeoJson(
+                        geojson_data,
+                        style_function=style_depts,
+                        tooltip=folium.GeoJsonTooltip(fields=['code', 'nom'], aliases=['Dept:', 'Nom:'])
+                    ).add_to(m_depts)
+                    
+                    st_folium(m_depts, width="100%", height=380, key="map_depts_visited_v6")
+                except Exception as e:
+                    st.warning(f"Erreur d'affichage de la carte : {e}")
+            else:
+                st.info("Données de départements en cours de chargement...")
