@@ -712,6 +712,18 @@ with tab_fiche:
                 st.write(f"🗓 **Date :** {infos['Date']}")
                 st.write(f"🏃 **Type :** {infos['Type de course']} ({infos['Détail']})")
                 
+                # Récupération de la colonne "Date inscription" (ou "Date d'inscription")
+                date_inscr = ""
+                for col in infos.index:
+                    col_low = str(col).strip().lower()
+                    if "date" in col_low and "inscription" in col_low:
+                        val_inscr = str(infos[col]).strip()
+                        if val_inscr and val_inscr.lower() not in ["nan", "none", ""]:
+                            date_inscr = val_inscr
+                            break
+                if date_inscr:
+                    st.write(f"🎟️ **Ouverture des inscriptions :** {date_inscr}")
+                
                 url_officielle, statut_lien = get_lien_info_row(infos)
                 if statut_lien == "url":
                     st.markdown(f"🔗 **Site officiel de l'organisateur :** [Accéder aux inscriptions officielles ↗️]({url_officielle})")
@@ -808,19 +820,12 @@ with tab_agenda:
                 else:
                     details_list.append(str(r['Nom_Membre']))
             
-            days_diff = (c_row['Date_dt'].date() - today_date).days
-            if days_diff == 0:
-                rebours = "🔥 Aujourd'hui !"
-            elif days_diff == 1:
-                rebours = "⚡ Demain"
-            else:
-                rebours = f"Dans {days_diff} j"
-
+            days_diff = int((c_row['Date_dt'].date() - today_date).days)
             lbl_encoded = urllib.parse.quote(str(c_row['Label_Unique']))
 
             agenda_rows.append({
-                "Date": c_row['Date'],
-                "Échéance": rebours,
+                "Date": c_row['Date_dt'].date(),
+                "Échéance": days_diff,
                 "Nom de la course": c_row['Nom de la course'],
                 "Lieu": c_row['Lieu'],
                 "Discipline": c_row['Catégorie'],
@@ -835,7 +840,7 @@ with tab_agenda:
     if not agenda_rows:
         st.info("Aucune course à venir avec des membres annoncés pour le moment. Utilise l'onglet **Fiche Course & Participation** !")
     else:
-        df_agenda = pd.DataFrame(agenda_rows)
+        df_agenda = pd.DataFrame(agenda_rows).sort_values(by=["Date", "Nom de la course"], ascending=[True, True]).reset_index(drop=True)
         
         col_ag1, col_ag2, col_ag3 = st.columns(3)
         with col_ag1:
@@ -844,7 +849,9 @@ with tab_agenda:
             st.metric("👥 Total dossards engagés", int(df_agenda["Inscrits RD"].sum()))
         with col_ag3:
             prochaine = df_agenda.iloc[0]
-            st.metric("Prochain départ", prochaine['Échéance'], prochaine['Nom de la course'])
+            jours_prochaine = int(prochaine['Échéance'])
+            txt_prochaine = "🔥 Aujourd'hui !" if jours_prochaine == 0 else ("⚡ Demain" if jours_prochaine == 1 else f"Dans {jours_prochaine} j")
+            st.metric("Prochain départ", txt_prochaine, prochaine['Nom de la course'])
 
         st.dataframe(
             df_agenda[[
@@ -852,6 +859,14 @@ with tab_agenda:
                 "Discipline", "Inscrits RD", "Participants & Distances", "Action"
             ]],
             column_config={
+                "Date": st.column_config.DateColumn(
+                    "Date",
+                    format="DD/MM/YYYY"
+                ),
+                "Échéance": st.column_config.NumberColumn(
+                    "Échéance",
+                    format="Dans %d j"
+                ),
                 "Action": st.column_config.LinkColumn(
                     "Suivi club",
                     display_text="🙋‍♂️ J'y vais"
