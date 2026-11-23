@@ -943,7 +943,8 @@ with tab_agenda:
         </table>
         </div>
         """
-        st.markdown(table_html, unsafe_allow_html=True)
+        table_html_clean = "\n".join(line.strip() for line in table_html.splitlines() if line.strip())
+        st.markdown(table_html_clean, unsafe_allow_html=True)
 
         st.divider()
 
