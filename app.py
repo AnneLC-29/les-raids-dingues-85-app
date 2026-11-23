@@ -498,6 +498,7 @@ COORDS_VILLES_RAW = {
     ("L'ORBRIE", "France"): (46.4892, -0.7850),
     ("AUCHAY SUR VENDEE", "France"): (46.4533, -0.8578),
     ("SAINT MICHEL LE CLOUCQ", "France"): (46.4856, -0.7528),
+    ("BREUIL BARRET", "France"): (46.6525, -0.7447),
     # --- ÉTRANGER (ESPAGNE, etc.) ---
     ("VALENCE", "Spain"): (39.4699, -0.3763),
     ("VALENCIA", "Spain"): (39.4699, -0.3763),
@@ -512,36 +513,40 @@ COORDS_VILLES_RAW = {
 COORDS_VILLES = {(normalize_lieu(k[0]), k[1]): v for k, v in COORDS_VILLES_RAW.items()}
 
 @st.cache_resource
-def get_runtime_geo_cache_v2():
+def get_runtime_geo_cache_v3():
     return {}
 
-runtime_geo_cache = get_runtime_geo_cache_v2()
+runtime_geo_cache = get_runtime_geo_cache_v3()
 
 def query_ban_strict(ville_q, dept):
-    """Interroge l'API BAN avec contrôle strict du score et du département."""
-    try:
-        query_str = f"{ville_q} {dept}".strip() if dept else ville_q
-        resp = requests.get(
-            "https://api-adresse.data.gouv.fr/search/",
-            params={"q": query_str, "type": "municipality", "limit": 5},
-            timeout=3
-        )
-        if resp.status_code == 200:
-            features = resp.json().get("features", [])
-            for feat in features:
-                props = feat.get("properties", {})
-                score = props.get("score", 0)
-                context = str(props.get("context", ""))
-                postcode = str(props.get("postcode", ""))
-                if score < 0.45:
-                    continue
-                if dept:
-                    if not (context.startswith(dept) or postcode.startswith(dept)):
+    """Interroge l'API BAN (communes + communes déléguées) avec vérification stricte du département."""
+    query_str = f"{ville_q} {dept}".strip() if dept else ville_q
+    for place_type in ["municipality", None]:
+        try:
+            params = {"q": query_str, "limit": 5}
+            if place_type:
+                params["type"] = place_type
+            resp = requests.get(
+                "https://api-adresse.data.gouv.fr/search/",
+                params=params,
+                timeout=3
+            )
+            if resp.status_code == 200:
+                features = resp.json().get("features", [])
+                for feat in features:
+                    props = feat.get("properties", {})
+                    score = props.get("score", 0)
+                    context = str(props.get("context", ""))
+                    postcode = str(props.get("postcode", ""))
+                    if score < 0.45:
                         continue
-                lon, lat = feat["geometry"]["coordinates"]
-                return lat, lon
-    except Exception:
-        pass
+                    if dept:
+                        if not (context.startswith(dept) or postcode.startswith(dept)):
+                            continue
+                    lon, lat = feat["geometry"]["coordinates"]
+                    return lat, lon
+        except Exception:
+            pass
     return None, None
 
 def get_coords_expert(lieu_str, row=None):
@@ -578,7 +583,6 @@ def get_coords_expert(lieu_str, row=None):
             runtime_geo_cache[cache_key] = (lat, lon, "🇫🇷 API État (vérifié)")
             return lat, lon, "🇫🇷 API État (vérifié)"
             
-        # Si nom composé avec tiret (ex: "LES MATHES - LA PALMYRE"), tester la commune principale
         if " - " in ville_clean:
             ville_principale = ville_clean.split(" - ")[0].strip()
             lat, lon = query_ban_strict(ville_principale, dept)
@@ -1134,7 +1138,7 @@ with tab_carte:
                     icon=folium.Icon(color=icon_color, icon=icon_name, prefix=icon_prefix)
                 ).add_to(m)
                 
-        map_data = st_folium(m, width="100%", height=600, key="map_courses_v7", returned_objects=["last_object_clicked_tooltip"])
+        map_data = st_folium(m, width="100%", height=600, key="map_courses_v8", returned_objects=["last_object_clicked_tooltip"])
     
     with col_details:
         st.write("### 📜 Palmarès de la course")
@@ -1220,6 +1224,9 @@ with tab_membre:
                 st.metric(f"Total d'inscriptions ({titre_annees})", len(p_membre))
                 df_c_sub = df_courses[["Course_Key", "Annee", "Type de course"]].drop_duplicates()
                 details_membre = p_membre.merge(df_c_sub, on=["Course_Key", "Annee"], how="left")
+                
+                # Tri décroissant par date (du plus récent au plus ancien)
+                details_membre = details_membre.sort_values(by="Date_dt", ascending=False, na_position="last").copy()
                 
                 details_membre['Resultat'] = details_membre['Resultat'].apply(format_resultat_avec_emoji)
                 disp_cols_m = [c for c in ["Date", "Nom_Course", "Lieu", "Type de course", "Distance", "Statut", "Resultat"] if c in details_membre.columns]
