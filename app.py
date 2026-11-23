@@ -17,7 +17,7 @@ import requests
 from geopy.geocoders import Nominatim
 
 # Initialisation du géolocaliseur de secours
-geolocator = Nominatim(user_agent="raids_dingues_app_85")
+geolocator = Nominatim(user_agent="raids_dingues_app_85_v2")
 
 # Compteur de visiteurs uniques (IP)
 @st.cache_resource
@@ -77,6 +77,20 @@ DEPTS_NAMES = {
     "974": "La Réunion", "976": "Mayotte"
 }
 
+PAYS_CODES = {
+    "ESP": "Spain", "ES": "Spain", "ESPAGNE": "Spain", "SPAIN": "Spain",
+    "POR": "Portugal", "PT": "Portugal", "PORTUGAL": "Portugal",
+    "ITA": "Italy", "IT": "Italy", "ITALIE": "Italy", "ITALY": "Italy",
+    "SUI": "Switzerland", "CH": "Switzerland", "SUISSE": "Switzerland",
+    "BEL": "Belgium", "BE": "Belgium", "BELGIQUE": "Belgium",
+    "AND": "Andorra", "ANDORRE": "Andorra",
+    "MAR": "Morocco", "MA": "Morocco", "MAROC": "Morocco",
+    "GBR": "United Kingdom", "UK": "United Kingdom", "ANGLETERRE": "United Kingdom",
+    "ALL": "Germany", "DE": "Germany", "ALLEMAGNE": "Germany",
+    "LUX": "Luxembourg", "LU": "Luxembourg",
+    "PB": "Netherlands", "NL": "Netherlands", "PAYS-BAS": "Netherlands"
+}
+
 MOIS_TEXTE = {
     "janvier": 1, "janv": 1, "février": 2, "fevrier": 2, "févr": 2, "fevr": 2, "mars": 3,
     "avril": 4, "avr": 4, "mai": 5, "juin": 6, "juillet": 7, "juil": 7, "août": 8, "aout": 8,
@@ -101,16 +115,57 @@ def normalize_lieu(lieu):
     if not lieu or pd.isna(lieu):
         return ""
     text = str(lieu).split('(')[0]
-    text = text.replace('\xa0', ' ').replace('-', ' ')
+    text = text.replace('\xa0', ' ').replace('-', ' ').replace('/', ' ')
     text = unicodedata.normalize('NFD', text)
     text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    text = re.sub(r'\bST\b', 'SAINT', text)
+    text = re.sub(r'\bSTE\b', 'SAINTE', text)
     return re.sub(r'\s+', ' ', text).strip().upper()
+
+def parse_lieu_details(lieu_str):
+    """Extrait (ville_nettoyee, dept_fr, pays_en) même si la parenthèse fermante manque."""
+    if pd.isna(lieu_str) or not str(lieu_str).strip():
+        return "", None, "France"
+    raw = str(lieu_str).strip()
+    match = re.search(r'\(([^)\s]+)\)?', raw)
+    code = match.group(1).strip().upper() if match else None
+    
+    ville = raw.split('(')[0].replace('\xa0', ' ').strip()
+    ville_clean = re.sub(r'\b[Ss][Tt]\b\.?', 'Saint', ville)
+    ville_clean = re.sub(r'\b[Ss][Tt][Ee]\b\.?', 'Sainte', ville_clean)
+    ville_clean = ville_clean.replace('/', ' sur ')
+    ville_clean = re.sub(r'\s+', ' ', ville_clean).strip()
+    
+    if code in PAYS_CODES:
+        return ville_clean, None, PAYS_CODES[code]
+    
+    if code and re.match(r'^(\d{1,3}|2A|2B)$', code):
+        dept_fmt = code.zfill(2) if code.isdigit() and len(code) == 1 else code
+        return ville_clean, dept_fmt, "France"
+        
+    return ville_clean, None, "France"
 
 def extract_dept(lieu_str):
     if pd.isna(lieu_str):
         return None
-    match = re.search(r'\((\d{2,3}|2A|2B)\)', str(lieu_str))
-    return match.group(1) if match else None
+    _, dept, pays = parse_lieu_details(lieu_str)
+    return dept if pays == "France" else None
+
+def parse_gps_override(row):
+    """Lit une éventuelle colonne GPS / Coordonnées (format '46.6705, -1.4265')."""
+    if row is None:
+        return None, None
+    for col in row.index:
+        col_low = str(col).strip().lower()
+        if col_low in ["gps", "coordonnees", "coordonnées", "lat_lon", "latlon"]:
+            val = str(row[col]).strip()
+            if val and val.lower() not in ["nan", "none", ""]:
+                nums = re.findall(r'-?\d+\.\d+', val.replace(',', '.'))
+                if len(nums) >= 2:
+                    lat, lon = float(nums[0]), float(nums[1])
+                    if -90 <= lat <= 90 and -180 <= lon <= 180:
+                        return lat, lon
+    return None, None
 
 def parse_course_date(d_str):
     if pd.isna(d_str):
@@ -203,7 +258,6 @@ def get_lien_info_row(row):
     return None, "empty"
 
 def get_event_image(row):
-    # 1. Recherche dans les colonnes du Google Sheet (Visuel, Lien_Image, Image, Photo, Affiche)
     for col in row.index:
         col_low = str(col).strip().lower()
         if col_low in ["visuel", "lien_image", "image", "photo", "affiche", "visuel_web"]:
@@ -216,7 +270,6 @@ def get_event_image(row):
                 if match_www:
                     return format_gdrive_url("https://" + match_www.group(0))
     
-    # 2. Recherche d'une affiche locale dans affiches/ ou visuels/
     c_clean = strip_accents(str(row.get("Nom de la course", "")))
     if len(c_clean) > 3:
         candidats = (
@@ -349,94 +402,207 @@ MOIS_FR = {
     7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
 }
 
-# Base complète de coordonnées GPS (Niveau 1)
+# Base de référence locale (France + Étranger) indexée par (VILLE_NORMALISEE, PAYS)
 COORDS_VILLES_RAW = {
-    "FOURAS": (45.9875, -1.0936), "MAILLEZAIS": (46.3725, -0.7383), "LA ROCHELLE": (46.1603, -1.1511),
-    "LES MATHES": (45.7183, -1.1472), "BRESSUIRE": (46.8406, -0.4939), "POUFFONDS": (46.1736, -0.1558),
-    "ST LAURENT SUR SEVRE": (46.9583, -0.8931), "PARIS": (48.8566, 2.3522), "LUCS SUR BOULOGNE": (46.8439, -1.4939),
-    "LES LUCS SUR BOULOGNE": (46.8439, -1.4939), "NUEIL LES AUBIERS": (46.9372, -0.5897),
-    "LA CHAPELLE DES POTS": (45.7608, -0.5408), "AIGONNAY": (46.3411, -0.2447), "FONTENAY LE COMTE": (46.4667, -0.8000),
-    "SAIVRES": (46.4250, -0.2319), "SAINTE SOULLE": (46.1856, -1.0117), "CUGAND": (47.0628, -1.2542),
-    "ST MAIXENT L'ECOLE": (46.4117, -0.2078), "CHAPELLE ST LAURENT": (46.8147, -0.4786),
-    "ARCHINGEAY": (45.9328, -0.6558), "MERVENT": (46.5228, -0.7553), "VALLET": (47.1611, -1.2658),
-    "AIGONDIGNE": (46.3486, -0.2883), "BOURNEZEAU": (46.6358, -1.1689), "VINCENNES": (48.8475, 2.4392),
-    "ISSY LES MOULINEAUX": (48.8239, 2.2703), "CHAMPDENIERS": (46.4842, -0.4028), "CHAUCHE": (46.8308, -1.2694),
-    "CHARENTON LE PONT": (48.8222, 2.4144), "AIGREFEUILLE D'AUNIS": (46.1181, -0.9328),
-    "BOISSIERE DE MONTAIGU": (46.9806, -1.1917), "VOLVIC": (45.8711, 3.0372), "ST JEAN DE MONTS": (46.7922, -2.0603),
-    "MORTAGNE / SEVRE": (46.9931, -0.9542), "MORTAGNE SUR SEVRE": (46.9931, -0.9542), "ROCHEFORT": (45.9428, -0.9631),
-    "ST MARTIN DES NOYERS": (46.7239, -1.1783), "LONGEVILLE SUR MER": (46.4239, -1.4889),
-    "LA GAUBRETIERE": (46.9458, -1.0664), "BEAULIEU SOUS LA ROCHE": (46.6764, -1.6094), "SAUMUR": (47.2603, -0.0769),
-    "L'OIE": (46.7981, -1.1325), "ST HILAIRE DE RIEZ": (46.7214, -1.9453), "POUZAUGES": (46.7833, -0.8333),
-    "VENAUSAULT": (46.6858, -1.5125), "VENANSAULT": (46.6858, -1.5125), "NIORT": (46.3237, -0.4648), "LUCON": (46.4550, -1.1664),
-    "LA TRANCHE / MER": (46.3439, -1.4389), "LA TRANCHE SUR MER": (46.3439, -1.4389), "NOIRMOUTIER": (47.0003, -2.2417),
-    "LES SABLES D'OLONNES": (46.4972, -1.7833), "LES SABLES D'OLONNE": (46.4972, -1.7833), "PARTHENAY": (46.6486, -0.2483),
-    "LA ROCHE SUR YON": (46.6705, -1.4265), "CHATELAILLON-PLAGE": (46.0728, -1.0881), "CHATELAILLON": (46.0728, -1.0881),
-    "LES HERBIERS": (46.8681, -1.0094), "NANTES": (47.2181, -1.5536), "CHANTONNAY": (46.6881, -1.0506),
-    "MONTAIGU": (46.9739, -1.3125), "AIRVAULT": (46.8267, -0.1389), "TALMONT ST HILAIRE": (46.4683, -1.6186),
-    "SAINTE NEOMAYE": (46.3719, -0.2589), "MAGNÉ": (46.3153, -0.5461), "CROZON": (48.2464, -4.4894),
-    "CARCANS": (45.0783, -1.0456), "TIFFAUGES": (47.0142, -1.1114), "MAULEON": (46.9213, -0.7497),
-    "LE POIRE SUR VIE": (46.7672, -1.5017), "VIX": (46.3631, -0.8542), "SAINTE FOY": (46.5372, -1.5647),
-    "STE FOY": (46.5372, -1.5647), "COURS": (46.7328, -0.4967), "VIEILLE AURE": (42.8286, 0.3242),
-    "VIELLE AURE": (42.8286, 0.3242), "LAVELANET": (42.9300, 1.8492), "CHEFFOIS": (46.6692, -0.7892),
-    "FUTUROSCOPE": (46.6700, 0.3600), "SAINT MALO": (48.6493, -2.0257), "BARBATRE": (46.9450, -2.1810),
-    "POULDREUZIC": (47.9525, -4.3606), "PORNIC": (47.1147, -2.1031), "CHAVAGNES EN PAILLERS": (46.8925, -1.2514),
-    "LE CHATEAU D'OLERON": (45.8858, -1.1947), "CHATEAU D'OLERON": (45.8858, -1.1947),
-    "ARGENTON LES VALLEES": (46.9850, -0.4492), "ARGENTON-LES-VALLEES": (46.9850, -0.4492),
-    "ARGENTONNAY": (46.9850, -0.4492)
+    ("FOURAS", "France"): (45.9875, -1.0936),
+    ("MAILLEZAIS", "France"): (46.3725, -0.7383),
+    ("LA ROCHELLE", "France"): (46.1603, -1.1511),
+    ("LES MATHES", "France"): (45.7183, -1.1472),
+    ("LES MATHES LA PALMYRE", "France"): (45.6844, -1.1764),
+    ("LA PALMYRE", "France"): (45.6844, -1.1764),
+    ("BRESSUIRE", "France"): (46.8406, -0.4939),
+    ("POUFFONDS", "France"): (46.1736, -0.1558),
+    ("SAINT LAURENT SUR SEVRE", "France"): (46.9583, -0.8931),
+    ("PARIS", "France"): (48.8566, 2.3522),
+    ("LUCS SUR BOULOGNE", "France"): (46.8439, -1.4939),
+    ("LES LUCS SUR BOULOGNE", "France"): (46.8439, -1.4939),
+    ("NUEIL LES AUBIERS", "France"): (46.9372, -0.5897),
+    ("LA CHAPELLE DES POTS", "France"): (45.7608, -0.5408),
+    ("AIGONNAY", "France"): (46.3411, -0.2447),
+    ("FONTENAY LE COMTE", "France"): (46.4667, -0.8000),
+    ("SAIVRES", "France"): (46.4250, -0.2319),
+    ("SAINTE SOULLE", "France"): (46.1856, -1.0117),
+    ("CUGAND", "France"): (47.0628, -1.2542),
+    ("SAINT MAIXENT L'ECOLE", "France"): (46.4117, -0.2078),
+    ("CHAPELLE SAINT LAURENT", "France"): (46.8147, -0.4786),
+    ("ARCHINGEAY", "France"): (45.9328, -0.6558),
+    ("MERVENT", "France"): (46.5228, -0.7553),
+    ("VALLET", "France"): (47.1611, -1.2658),
+    ("AIGONDIGNE", "France"): (46.3486, -0.2883),
+    ("BOURNEZEAU", "France"): (46.6358, -1.1689),
+    ("VINCENNES", "France"): (48.8475, 2.4392),
+    ("ISSY LES MOULINEAUX", "France"): (48.8239, 2.2703),
+    ("CHAMPDENIERS", "France"): (46.4842, -0.4028),
+    ("CHAUCHE", "France"): (46.8308, -1.2694),
+    ("CHARENTON LE PONT", "France"): (48.8222, 2.4144),
+    ("AIGREFEUILLE D'AUNIS", "France"): (46.1181, -0.9328),
+    ("BOISSIERE DE MONTAIGU", "France"): (46.9806, -1.1917),
+    ("VOLVIC", "France"): (45.8711, 3.0372),
+    ("SAINT JEAN DE MONTS", "France"): (46.7922, -2.0603),
+    ("MORTAGNE SEVRE", "France"): (46.9931, -0.9542),
+    ("MORTAGNE SUR SEVRE", "France"): (46.9931, -0.9542),
+    ("ROCHEFORT", "France"): (45.9428, -0.9631),
+    ("SAINT MARTIN DES NOYERS", "France"): (46.7239, -1.1783),
+    ("LONGEVILLE SUR MER", "France"): (46.4239, -1.4889),
+    ("LA GAUBRETIERE", "France"): (46.9458, -1.0664),
+    ("BEAULIEU SOUS LA ROCHE", "France"): (46.6764, -1.6094),
+    ("SAUMUR", "France"): (47.2603, -0.0769),
+    ("L'OIE", "France"): (46.7981, -1.1325),
+    ("SAINT HILAIRE DE RIEZ", "France"): (46.7214, -1.9453),
+    ("POUZAUGES", "France"): (46.7833, -0.8333),
+    ("VENAUSAULT", "France"): (46.6858, -1.5125),
+    ("VENANSAULT", "France"): (46.6858, -1.5125),
+    ("NIORT", "France"): (46.3237, -0.4648),
+    ("LUCON", "France"): (46.4550, -1.1664),
+    ("LA TRANCHE MER", "France"): (46.3439, -1.4389),
+    ("LA TRANCHE SUR MER", "France"): (46.3439, -1.4389),
+    ("NOIRMOUTIER", "France"): (47.0003, -2.2417),
+    ("NOIRMOUTIER EN ILE", "France"): (47.0003, -2.2417),
+    ("LES SABLES D'OLONNES", "France"): (46.4972, -1.7833),
+    ("LES SABLES D'OLONNE", "France"): (46.4972, -1.7833),
+    ("PARTHENAY", "France"): (46.6486, -0.2483),
+    ("LA ROCHE SUR YON", "France"): (46.6705, -1.4265),
+    ("CHATELAILLON PLAGE", "France"): (46.0728, -1.0881),
+    ("CHATELAILLON", "France"): (46.0728, -1.0881),
+    ("LES HERBIERS", "France"): (46.8681, -1.0094),
+    ("NANTES", "France"): (47.2181, -1.5536),
+    ("CHANTONNAY", "France"): (46.6881, -1.0506),
+    ("MONTAIGU", "France"): (46.9739, -1.3125),
+    ("AIRVAULT", "France"): (46.8267, -0.1389),
+    ("TALMONT SAINT HILAIRE", "France"): (46.4683, -1.6186),
+    ("SAINTE NEOMAYE", "France"): (46.3719, -0.2589),
+    ("MAGNE", "France"): (46.3153, -0.5461),
+    ("CROZON", "France"): (48.2464, -4.4894),
+    ("CARCANS", "France"): (45.0783, -1.0456),
+    ("TIFFAUGES", "France"): (47.0142, -1.1114),
+    ("MAULEON", "France"): (46.9213, -0.7497),
+    ("LE POIRE SUR VIE", "France"): (46.7672, -1.5017),
+    ("VIX", "France"): (46.3631, -0.8542),
+    ("SAINTE FOY", "France"): (46.5372, -1.5647),
+    ("COURS", "France"): (46.7328, -0.4967),
+    ("VIEILLE AURE", "France"): (42.8286, 0.3242),
+    ("VIELLE AURE", "France"): (42.8286, 0.3242),
+    ("LAVELANET", "France"): (42.9300, 1.8492),
+    ("CHEFFOIS", "France"): (46.6692, -0.7892),
+    ("FUTUROSCOPE", "France"): (46.6700, 0.3600),
+    ("SAINT MALO", "France"): (48.6493, -2.0257),
+    ("BARBATRE", "France"): (46.9450, -2.1810),
+    ("POULDREUZIC", "France"): (47.9525, -4.3606),
+    ("PORNIC", "France"): (47.1147, -2.1031),
+    ("CHAVAGNES EN PAILLERS", "France"): (46.8925, -1.2514),
+    ("LE CHATEAU D'OLERON", "France"): (45.8858, -1.1947),
+    ("CHATEAU D'OLERON", "France"): (45.8858, -1.1947),
+    ("ARGENTON LES VALLEES", "France"): (46.9850, -0.4492),
+    ("ARGENTONNAY", "France"): (46.9850, -0.4492),
+    ("SAINTE RADEGONDE DES NOYERS", "France"): (46.3761, -1.0603),
+    ("L'ORBRIE", "France"): (46.4892, -0.7850),
+    ("AUCHAY SUR VENDEE", "France"): (46.4533, -0.8578),
+    ("SAINT MICHEL LE CLOUCQ", "France"): (46.4856, -0.7528),
+    # --- ÉTRANGER (ESPAGNE, etc.) ---
+    ("VALENCE", "Spain"): (39.4699, -0.3763),
+    ("VALENCIA", "Spain"): (39.4699, -0.3763),
+    ("MAJORQUE", "Spain"): (39.6953, 3.0176),
+    ("MALLORCA", "Spain"): (39.6953, 3.0176),
+    ("PALMA DE MAJORQUE", "Spain"): (39.5696, 2.6502),
+    ("SERRA DE TRAMUNTANA", "Spain"): (39.7500, 2.7500),
+    ("SOLLER", "Spain"): (39.7662, 2.7152),
+    ("POLLENCA", "Spain"): (39.8772, 3.0163)
 }
 
-COORDS_VILLES = {normalize_lieu(k): v for k, v in COORDS_VILLES_RAW.items()}
+COORDS_VILLES = {(normalize_lieu(k[0]), k[1]): v for k, v in COORDS_VILLES_RAW.items()}
 
 @st.cache_resource
-def get_runtime_geo_cache():
+def get_runtime_geo_cache_v2():
     return {}
 
-runtime_geo_cache = get_runtime_geo_cache()
+runtime_geo_cache = get_runtime_geo_cache_v2()
 
-def get_coords_expert(lieu_str):
-    if not lieu_str or pd.isna(lieu_str):
-        return None, None
-    
-    key = normalize_lieu(lieu_str)
-    if not key or key.startswith('?') or key.startswith('#'):
-        return None, None
-    
-    if key in COORDS_VILLES:
-        return COORDS_VILLES[key]
-    
-    if key in runtime_geo_cache:
-        return runtime_geo_cache[key]
-    
-    ville_clean = str(lieu_str).split('(')[0].replace('\xa0', ' ').strip()
-    dept = extract_dept(lieu_str) or ""
-    
+def query_ban_strict(ville_q, dept):
+    """Interroge l'API BAN avec contrôle strict du score et du département."""
     try:
-        query_ban = f"{ville_clean} {dept}".strip()
+        query_str = f"{ville_q} {dept}".strip() if dept else ville_q
         resp = requests.get(
             "https://api-adresse.data.gouv.fr/search/",
-            params={"q": query_ban, "type": "municipality", "limit": 1},
-            timeout=2
+            params={"q": query_str, "type": "municipality", "limit": 5},
+            timeout=3
         )
         if resp.status_code == 200:
-            data = resp.json()
-            if data.get("features"):
-                lon, lat = data["features"][0]["geometry"]["coordinates"]
-                runtime_geo_cache[key] = (lat, lon)
+            features = resp.json().get("features", [])
+            for feat in features:
+                props = feat.get("properties", {})
+                score = props.get("score", 0)
+                context = str(props.get("context", ""))
+                postcode = str(props.get("postcode", ""))
+                if score < 0.45:
+                    continue
+                if dept:
+                    if not (context.startswith(dept) or postcode.startswith(dept)):
+                        continue
+                lon, lat = feat["geometry"]["coordinates"]
                 return lat, lon
     except Exception:
         pass
+    return None, None
+
+def get_coords_expert(lieu_str, row=None):
+    """Résout les coordonnées GPS avec vérification stricte du département et support international."""
+    # 1. Priorité absolue : colonne GPS manuelle dans Google Sheets (ex: 46.6705, -1.4265)
+    lat_ov, lon_ov = parse_gps_override(row)
+    if lat_ov is not None and lon_ov is not None:
+        return lat_ov, lon_ov, "📍 Colonne GPS (Sheet)"
+
+    if not lieu_str or pd.isna(lieu_str):
+        return None, None, "❌ Lieu vide"
     
+    ville_clean, dept, pays = parse_lieu_details(lieu_str)
+    key_norm = normalize_lieu(ville_clean)
+    
+    if not key_norm or key_norm.startswith('?') or key_norm.startswith('#'):
+        return None, None, "❌ Lieu inconnu (??)"
+    
+    # 2. Base de référence interne vérifiée (ville + pays)
+    if (key_norm, pays) in COORDS_VILLES:
+        lat, lon = COORDS_VILLES[(key_norm, pays)]
+        return lat, lon, "✅ Base locale vérifiée"
+    
+    # 3. Cache mémoire de session
+    cache_key = (key_norm, dept or "", pays)
+    if cache_key in runtime_geo_cache:
+        lat, lon, src = runtime_geo_cache[cache_key]
+        return lat, lon, src
+    
+    # 4. Géocodage France via API officielle BAN (avec vérification stricte du département)
+    if pays == "France":
+        lat, lon = query_ban_strict(ville_clean, dept)
+        if lat and lon:
+            runtime_geo_cache[cache_key] = (lat, lon, "🇫🇷 API État (vérifié)")
+            return lat, lon, "🇫🇷 API État (vérifié)"
+            
+        # Si nom composé avec tiret (ex: "LES MATHES - LA PALMYRE"), tester la commune principale
+        if " - " in ville_clean:
+            ville_principale = ville_clean.split(" - ")[0].strip()
+            lat, lon = query_ban_strict(ville_principale, dept)
+            if lat and lon:
+                runtime_geo_cache[cache_key] = (lat, lon, "🇫🇷 API État (commune)")
+                return lat, lon, "🇫🇷 API État (commune)"
+    
+    # 5. Géocodage OpenStreetMap (France avec département ou Étranger avec pays)
     try:
-        dept_nom = DEPTS_NAMES.get(dept, "")
-        query_osm = f"{ville_clean}, {dept_nom}, France" if dept_nom else f"{ville_clean}, France"
-        loc = geolocator.geocode(query_osm, timeout=2)
+        if pays == "France":
+            dept_nom = DEPTS_NAMES.get(dept, "") if dept else ""
+            query_osm = f"{ville_clean}, {dept_nom}, France" if dept_nom else f"{ville_clean}, France"
+        else:
+            query_osm = f"{ville_clean}, {pays}"
+            
+        loc = geolocator.geocode(query_osm, timeout=3)
         if loc:
-            runtime_geo_cache[key] = (loc.latitude, loc.longitude)
-            return loc.latitude, loc.longitude
+            src_label = f"🌍 OpenStreetMap ({pays})"
+            runtime_geo_cache[cache_key] = (loc.latitude, loc.longitude, src_label)
+            return loc.latitude, loc.longitude, src_label
     except Exception:
         pass
         
-    return None, None
+    return None, None, f"❌ Introuvable ({ville_clean}, {pays})"
 
 def categorize_course(type_course):
     t = str(type_course).upper()
@@ -471,7 +637,7 @@ df_courses['Catégorie'] = df_courses['Type de course'].apply(categorize_course)
 
 liste_courses_labels = df_courses["Label_Unique"].dropna().tolist()
 
-# Gestion propre du paramètre d'URL ?course=... (sans bandeau permanent bloqué en haut)
+# Gestion propre du paramètre d'URL ?course=...
 course_url = st.query_params.get("course", None)
 if course_url:
     if course_url in liste_courses_labels:
@@ -917,9 +1083,10 @@ with tab_carte:
         start_date, end_date = min_d, max_d
     
     col_map, col_details = st.columns([2, 1])
+    diagnostic_gps = []
     
     with col_map:
-        m = folium.Map(location=[46.67, -1.42], zoom_start=8, tiles="OpenStreetMap")
+        m = folium.Map(location=[46.67, -1.42], zoom_start=7, tiles="OpenStreetMap")
         for _, row in df_courses.iterrows():
             if filtre_type != "Toutes les courses" and row['Catégorie'] != filtre_type:
                 continue
@@ -942,7 +1109,15 @@ with tab_carte:
             if filtre_inscrits and nb_inscrits == 0:
                 continue
                 
-            lat, lon = get_coords_expert(row['Lieu'])
+            lat, lon, source_geo = get_coords_expert(row['Lieu'], row=row)
+            diagnostic_gps.append({
+                "Course": row['Label_Unique'],
+                "Lieu saisi": row['Lieu'],
+                "Statut GPS": source_geo,
+                "Latitude": round(lat, 4) if lat else None,
+                "Longitude": round(lon, 4) if lon else None
+            })
+            
             if lat and lon:
                 rng = random.Random(str(row['Label_Unique']))
                 lat += rng.uniform(-0.004, 0.004)
@@ -959,7 +1134,7 @@ with tab_carte:
                     icon=folium.Icon(color=icon_color, icon=icon_name, prefix=icon_prefix)
                 ).add_to(m)
                 
-        map_data = st_folium(m, width="100%", height=600, key="map_courses_v5", returned_objects=["last_object_clicked_tooltip"])
+        map_data = st_folium(m, width="100%", height=600, key="map_courses_v7", returned_objects=["last_object_clicked_tooltip"])
     
     with col_details:
         st.write("### 📜 Palmarès de la course")
@@ -993,6 +1168,16 @@ with tab_carte:
                     inscrits_course = inscrits_course.sort_values(by="Km_Calc", ascending=False)
                     disp_cols_c = [c for c in ["Nom_Membre", "Distance", "Resultat"] if c in inscrits_course.columns]
                     st.dataframe(inscrits_course[disp_cols_c].astype(str), hide_index=True, use_container_width=True)
+
+    # Diagnostic GPS pour contrôler et corriger n'importe quel point au mètre près
+    if diagnostic_gps:
+        df_diag = pd.DataFrame(diagnostic_gps)
+        non_places = df_diag[df_diag["Latitude"].isna()]
+        with st.expander(f"🛠️ Contrôle GPS des courses ({len(df_diag) - len(non_places)}/{len(df_diag)} placées sur la carte)", expanded=False):
+            if not non_places.empty:
+                st.warning(f"⚠️ **{len(non_places)} course(s)** n'ont pas pu être placées (ex : lieu marqué `??` ou ville introuvable).")
+            st.caption("💡 Astuce : pour forcer la position exacte d'un départ (forêt, base de loisirs, étranger), ajoute une colonne **GPS** dans Google Sheets et colle les coordonnées copiées depuis Google Maps (ex : `46.6705, -1.4265`).")
+            st.dataframe(df_diag, hide_index=True, use_container_width=True)
 
 # --- TAB 4 : FICHE MEMBRE ET SUIVI ---
 with tab_membre:
