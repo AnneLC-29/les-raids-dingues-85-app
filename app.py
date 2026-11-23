@@ -33,21 +33,21 @@ try:
 except Exception:
     pass
 
-# Chargement sécurisé du GeoJSON des départements via CDN
+# Chargement sécurisé du GeoJSON des départements (API officielle État + miroirs)
 @st.cache_data(ttl=3600)
 def load_geojson_depts():
     urls = [
-        "https://cdn.jsdelivr.net/gh/gregoiredA/france-geojson@master/departements-version-simplifiee.geojson",
-        "https://france-geojson.gregoiredavid.fr/repo/departements-version-simplifiee.geojson",
-        "https://raw.githubusercontent.com/gregoiredA/france-geojson/master/departements-version-simplifiee.geojson"
+        "https://geo.api.gouv.fr/departements?format=geojson&geometry=contour",
+        "https://cdn.jsdelivr.net/gh/gregoiredavid/france-geojson@master/departements-version-simplifiee.geojson",
+        "https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements-version-simplifiee.geojson"
     ]
     req_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     for u in urls:
         try:
-            r = requests.get(u, headers=req_headers, timeout=6)
+            r = requests.get(u, headers=req_headers, timeout=8)
             if r.status_code == 200:
                 data = r.json()
-                if "features" in data:
+                if "features" in data and len(data["features"]) > 0:
                     return data
         except Exception:
             continue
@@ -800,7 +800,7 @@ with tab_agenda:
     courses_futures = df_courses[
         (df_courses['Date_dt'].notna()) & 
         (df_courses['Date_dt'].dt.date >= today_date)
-    ].sort_values(by='Date_dt').copy()
+    ].sort_values(by=['Date_dt', 'Nom de la course']).copy()
 
     agenda_rows = []
     for _, c_row in courses_futures.iterrows():
@@ -812,35 +812,57 @@ with tab_agenda:
         ]
         nb = len(inscrits_df)
         if nb > 0:
-            details_list = []
+            # Regroupement des participants par distance / format
+            groups = {}
+            display_labels = {}
             for _, r in inscrits_df.iterrows():
-                dist_txt = str(r['Distance']).strip()
-                if dist_txt and dist_txt not in ['0', '0.0', '']:
-                    details_list.append(f"{r['Nom_Membre']} ({dist_txt})")
+                nom_m = str(r.get('Nom_Membre', '')).strip()
+                if not nom_m:
+                    continue
+                raw_dist = str(r.get('Distance', '')).strip()
+                if not raw_dist or raw_dist.lower() in ['0', '0.0', 'nan', 'none']:
+                    k_dist = "non précisé"
+                    lbl_dist = "Non précisé"
+                elif raw_dist.lower() == 'x':
+                    k_dist = "x"
+                    lbl_dist = "x"
                 else:
-                    details_list.append(str(r['Nom_Membre']))
-            
+                    k_dist = raw_dist.lower()
+                    lbl_dist = raw_dist
+                
+                if k_dist not in groups:
+                    groups[k_dist] = []
+                    display_labels[k_dist] = lbl_dist
+                groups[k_dist].append(nom_m)
+
+            sorted_keys = sorted(groups.keys(), key=lambda k: (k in ['x', 'non précisé'], k))
+            lignes_html = []
+            for k in sorted_keys:
+                lbl_esc = html.escape(display_labels[k])
+                noms_esc = ", ".join(html.escape(n) for n in groups[k])
+                lignes_html.append(f"<div style='margin-bottom: 3px;'>• <b>{lbl_esc}</b> : {noms_esc}</div>")
+            participants_html = "".join(lignes_html)
+
             days_diff = int((c_row['Date_dt'].date() - today_date).days)
             lbl_encoded = urllib.parse.quote(str(c_row['Label_Unique']))
 
             agenda_rows.append({
-                "Date": c_row['Date_dt'].date(),
-                "Échéance": days_diff,
-                "Nom de la course": c_row['Nom de la course'],
-                "Lieu": c_row['Lieu'],
-                "Discipline": c_row['Catégorie'],
+                "Date_obj": c_row['Date_dt'].date(),
+                "Date_str": c_row['Date_dt'].strftime("%d/%m/%Y"),
+                "Echeance_j": days_diff,
+                "Nom de la course": str(c_row['Nom de la course']),
+                "Lieu": str(c_row['Lieu']),
+                "Discipline": str(c_row['Catégorie']),
                 "Inscrits RD": nb,
-                "Participants & Distances": ", ".join(details_list),
-                "Action": f"/?course={lbl_encoded}",
-                "Label_Unique": c_row['Label_Unique'],
-                "Course_Key": c_key,
-                "Annee": annee
+                "Participants_HTML": participants_html,
+                "Action_URL": f"?course={lbl_encoded}",
+                "Label_Unique": str(c_row['Label_Unique'])
             })
 
     if not agenda_rows:
         st.info("Aucune course à venir avec des membres annoncés pour le moment. Utilise l'onglet **Fiche Course & Participation** !")
     else:
-        df_agenda = pd.DataFrame(agenda_rows).sort_values(by=["Date", "Nom de la course"], ascending=[True, True]).reset_index(drop=True)
+        df_agenda = pd.DataFrame(agenda_rows).sort_values(by=["Date_obj", "Nom de la course"], ascending=[True, True]).reset_index(drop=True)
         
         col_ag1, col_ag2, col_ag3 = st.columns(3)
         with col_ag1:
@@ -849,32 +871,79 @@ with tab_agenda:
             st.metric("👥 Total dossards engagés", int(df_agenda["Inscrits RD"].sum()))
         with col_ag3:
             prochaine = df_agenda.iloc[0]
-            jours_prochaine = int(prochaine['Échéance'])
-            txt_prochaine = "🔥 Aujourd'hui !" if jours_prochaine == 0 else ("⚡ Demain" if jours_prochaine == 1 else f"Dans {jours_prochaine} j")
-            st.metric("Prochain départ", txt_prochaine, prochaine['Nom de la course'])
+            j_proch = int(prochaine['Echeance_j'])
+            txt_proch = "🔥 Aujourd'hui !" if j_proch == 0 else ("⚡ Demain" if j_proch == 1 else f"Dans {j_proch} j")
+            st.metric("Prochain départ", txt_proch, prochaine['Nom de la course'])
 
-        st.dataframe(
-            df_agenda[[
-                "Date", "Échéance", "Nom de la course", "Lieu", 
-                "Discipline", "Inscrits RD", "Participants & Distances", "Action"
-            ]],
-            column_config={
-                "Date": st.column_config.DateColumn(
-                    "Date",
-                    format="DD/MM/YYYY"
-                ),
-                "Échéance": st.column_config.NumberColumn(
-                    "Échéance",
-                    format="Dans %d j"
-                ),
-                "Action": st.column_config.LinkColumn(
-                    "Suivi club",
-                    display_text="🙋‍♂️ J'y vais"
-                )
-            },
-            hide_index=True,
-            use_container_width=True
-        )
+        # Tableau HTML multi-lignes (hauteur auto-ajustée par course)
+        table_html = """
+        <style>
+            .agenda-table { width: 100%; border-collapse: collapse; font-size: 14px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+            .agenda-table th { background-color: #f8fafc; color: #475569; font-weight: 600; text-align: left; padding: 12px 14px; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+            .agenda-table td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: top; color: #1e293b; }
+            .agenda-table tr:hover td { background-color: #f8fafc; }
+            .badge-j { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; background-color: #eff6ff; color: #1d4ed8; white-space: nowrap; }
+            .badge-urgent { background-color: #fef2f2; color: #dc2626; }
+            .badge-count { display: inline-block; padding: 2px 9px; border-radius: 12px; font-weight: 700; font-size: 13px; background-color: #f1f5f9; color: #0f172a; }
+            .btn-jyvais { display: inline-block; padding: 5px 10px; border-radius: 6px; background-color: #eff6ff; color: #1d4ed8 !important; text-decoration: none !important; font-weight: 600; font-size: 13px; white-space: nowrap; border: 1px solid #bfdbfe; }
+            .btn-jyvais:hover { background-color: #dbeafe; }
+        </style>
+        <div style="overflow-x: auto;">
+        <table class="agenda-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Échéance</th>
+                    <th>Course & Lieu</th>
+                    <th>Discipline</th>
+                    <th style="text-align: center;">Inscrits</th>
+                    <th>Participants par distance</th>
+                    <th style="text-align: center;">Suivi club</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+
+        for _, row_ag in df_agenda.iterrows():
+            j_val = int(row_ag['Echeance_j'])
+            if j_val == 0:
+                badge_txt = "🔥 Aujourd'hui"
+                badge_cls = "badge-j badge-urgent"
+            elif j_val == 1:
+                badge_txt = "⚡ Demain"
+                badge_cls = "badge-j badge-urgent"
+            elif j_val <= 7:
+                badge_txt = f"Dans {j_val} j"
+                badge_cls = "badge-j badge-urgent"
+            else:
+                badge_txt = f"Dans {j_val} j"
+                badge_cls = "badge-j"
+
+            course_esc = html.escape(row_ag['Nom de la course'])
+            lieu_esc = html.escape(row_ag['Lieu'])
+            disc_esc = html.escape(row_ag['Discipline'])
+
+            table_html += f"""
+                <tr>
+                    <td style="white-space: nowrap; font-weight: 500;">{row_ag['Date_str']}</td>
+                    <td><span class="{badge_cls}">{badge_txt}</span></td>
+                    <td>
+                        <div style="font-weight: 600; color: #0f172a;">{course_esc}</div>
+                        <div style="font-size: 12px; color: #64748b; margin-top: 2px;">📍 {lieu_esc}</div>
+                    </td>
+                    <td style="font-size: 13px; color: #475569; white-space: nowrap;">{disc_esc}</td>
+                    <td style="text-align: center;"><span class="badge-count">{row_ag['Inscrits RD']}</span></td>
+                    <td style="line-height: 1.45; min-width: 260px;">{row_ag['Participants_HTML']}</td>
+                    <td style="text-align: center;"><a class="btn-jyvais" href="{row_ag['Action_URL']}" target="_self">🙋‍♂️ J'y vais</a></td>
+                </tr>
+            """
+
+        table_html += """
+            </tbody>
+        </table>
+        </div>
+        """
+        st.markdown(table_html, unsafe_allow_html=True)
 
         st.divider()
 
@@ -1357,7 +1426,7 @@ with tab_stats_glob:
                 lambda code: f"{code} - {DEPTS_NAMES.get(code, 'Inconnu')}"
             )
             
-            df_depts = df_depts.sort_values(by='Code_Dept')[['Lieu des courses', 'Nombre de courses']]
+            df_depts = df_depts.sort_values(by='Code_Dept').copy()
             
             col_d_title, col_d_metric = st.columns([2, 1])
             with col_d_title:
@@ -1365,7 +1434,7 @@ with tab_stats_glob:
             with col_d_metric:
                 st.metric("Départements distincts", len(df_depts))
                 
-            st.dataframe(df_depts, hide_index=True, use_container_width=True)
+            st.dataframe(df_depts[['Lieu des courses', 'Nombre de courses']], hide_index=True, use_container_width=True)
 
         with col_s_right:
             st.write("#### 👥 Participants & Kilomètres par manifestation (à date)")
